@@ -1,0 +1,16 @@
+.env
+config.toml
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+htmlcov/
+data/
+logs/
+debug/
+backups/
+.monitor.lock
+.idea/
+.vscode/
+maps-review-monitor-update.tar.gz

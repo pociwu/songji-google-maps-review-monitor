@@ -1,0 +1,14 @@
+[Unit]
+Description=Check Google Maps reviews at a random 45 to 90 minute interval
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=45min
+RandomizedDelaySec=45min
+FixedRandomDelay=no
+AccuracySec=1min
+Persistent=true
+Unit=maps-review-monitor.service
+
+[Install]
+WantedBy=timers.target

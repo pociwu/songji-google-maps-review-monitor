@@ -1,0 +1,16 @@
+timezone = "Asia/Taipei"
+locale = "zh-TW"
+scan_limit = 50
+known_streak_stop = 10
+headless = true
+browser_channel = ""
+navigation_timeout_seconds = 45
+data_dir = "data"
+log_dir = "logs"
+debug_dir = "debug"
+
+[[shops]]
+name = "範例店家"
+url = "https://www.google.com/maps/place/..."
+enabled = true
+
