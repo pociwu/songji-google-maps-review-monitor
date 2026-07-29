@@ -6,7 +6,10 @@ __pycache__/
 *.egg-info/
 .coverage
 htmlcov/
-data/
+data/*
+!data/portal/
+data/portal/*
+!data/portal/content.example.yaml
 logs/
 debug/
 backups/

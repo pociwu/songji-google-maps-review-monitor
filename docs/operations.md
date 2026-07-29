@@ -71,3 +71,32 @@ maps-review-monitor restore backups/maps-review-monitor-YYYYMMDD-HHMMSS.zip --fo
 ```
 
 切換到另一台排程主機前，先停用原主機 timer 或工作排程器，再備份、傳送 ZIP 並還原，以避免兩個監控程序同時寫入同一組資料。
+## 店家展示頁
+
+展示頁與評論監控使用相同的 Python 環境與資料目錄，但為獨立 systemd 服務。它不會寫入 SQLite 資料庫，只讀取評論、監控狀況和 `data/portal/content.yaml`。
+
+首次部署或程式更新後，請在專案根目錄執行：
+
+```bash
+sudo cp deploy/systemd/maps-review-portal.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now maps-review-portal.service
+systemctl status maps-review-portal.service
+```
+
+服務監聽 `0.0.0.0:8088`。請使用主機的 Tailscale IP 或 MagicDNS 名稱瀏覽；網站本身沒有登入機制，Tailnet ACL 是唯一存取邊界。
+
+### 編輯內容素材
+
+```bash
+mkdir -p data/portal/<店家代號>
+cp data/portal/content.example.yaml data/portal/content.yaml
+```
+
+在 `content.yaml` 的每筆資料需提供 `id`、`shop_key`、`published_at`、`title` 和 `body`。`photos` 是相對於專案根目錄的本機媒體路徑；`videos` 可放本機影片路徑或外部影片 URL。修改 YAML 或新增媒體後，重新整理網頁即可看到結果，不需要重啟服務。
+
+驗證 YAML 是否可載入：
+
+```bash
+python -c "from pathlib import Path; from maps_review_monitor.portal import load_content_assets; print(load_content_assets(Path('data/portal/content.yaml')))"
+```

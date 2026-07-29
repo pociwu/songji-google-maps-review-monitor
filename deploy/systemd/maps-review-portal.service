@@ -1,0 +1,17 @@
+[Unit]
+Description=Songji review monitor public portal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/maps-review-monitor
+ExecStart=/home/ubuntu/miniconda3/envs/maps-review-monitor/bin/uvicorn maps_review_monitor.portal:create_app --factory --host 0.0.0.0 --port 8088 --workers 1
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

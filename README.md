@@ -118,6 +118,23 @@ Ubuntu 與 Windows 請勿同時對同一份資料庫啟用排程。切換主機�
 pytest
 ```
 
+## 店家展示頁（Tailscale）
+
+展示頁會直接讀取既有的 SQLite 評論資料與本機媒體；它不需要網站登入，請只透過 Tailscale 存取。服務在主機綁定 `0.0.0.0:8088`，可從 Tailnet 裝置以 `http://<主機的-Tailscale-IP>:8088` 開啟。
+
+人工貼文、照片與影片以檔案方式管理：將 `data/portal/content.example.yaml` 複製為 `data/portal/content.yaml`，並依範例新增內容；本機素材放在 `data/portal/<店家代號>/`。`shop_key` 是店家 Google Maps URL 的 SHA-256 前 16 碼，可由現有 SQLite 的 `shops` 資料表查得。
+
+在 Ubuntu 安裝或更新依賴後啟用服務：
+
+```bash
+sudo cp deploy/systemd/maps-review-portal.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now maps-review-portal.service
+systemctl status maps-review-portal.service
+```
+
+查看完整部署與操作說明請見 [操作手冊](docs/operations.md)。
+
 ## 授權
 
 本專案以 [MIT License](LICENSE) 發布。

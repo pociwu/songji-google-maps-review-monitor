@@ -11,7 +11,7 @@ from .models import ReviewSnapshot
 from .review_times import back_calculate, estimate_from_transition, parse_relative_time
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 SCHEMA = """
@@ -20,7 +20,8 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS shops (
   shop_key TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL,
   initialized INTEGER NOT NULL DEFAULT 0, consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  alert_active INTEGER NOT NULL DEFAULT 0, last_checked_at TEXT, updated_at TEXT NOT NULL
+  alert_active INTEGER NOT NULL DEFAULT 0, last_checked_at TEXT, last_success_at TEXT,
+  updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS reviews (
   shop_key TEXT NOT NULL, review_id TEXT NOT NULL, snapshot_json TEXT NOT NULL,
@@ -79,11 +80,13 @@ class Database:
         if not table:
             return False
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(reviews)")}
+        shop_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(shops)")}
         return (
             int(self.conn.execute("PRAGMA user_version").fetchone()[0]) < SCHEMA_VERSION
             or "back_calculated_at" not in columns
             or "estimated_posted_date" not in columns
             or "time_parse_status" not in columns
+            or "last_success_at" not in shop_columns
         )
 
     def _backup_before_migration(self) -> Path:
@@ -110,6 +113,9 @@ class Database:
         for name, definition in additions.items():
             if name not in columns:
                 self.conn.execute(f"ALTER TABLE reviews ADD COLUMN {name} {definition}")
+        shop_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(shops)")}
+        if "last_success_at" not in shop_columns:
+            self.conn.execute("ALTER TABLE shops ADD COLUMN last_success_at TEXT")
         self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self.conn.commit()
 
@@ -268,8 +274,9 @@ class Database:
         row = self.conn.execute("SELECT alert_active FROM shops WHERE shop_key=?", (shop_key,)).fetchone()
         recovered = bool(row and row[0])
         self.conn.execute(
-            "UPDATE shops SET initialized=1,consecutive_failures=0,alert_active=0,last_checked_at=?,updated_at=? WHERE shop_key=?",
-            (utcnow(), utcnow(), shop_key),
+            """UPDATE shops SET initialized=1,consecutive_failures=0,alert_active=0,
+               last_checked_at=?,last_success_at=?,updated_at=? WHERE shop_key=?""",
+            (utcnow(), utcnow(), utcnow(), shop_key),
         )
         self.conn.commit()
         return recovered
@@ -344,6 +351,31 @@ class Database:
             item["estimated_posted_date"] = row["estimated_posted_date"]
             item["time_parse_status"] = row["time_parse_status"]
             yield item
+
+    def iter_shop_statuses(self) -> Iterator[dict[str, Any]]:
+        """Return the public, non-sensitive monitoring state for each known shop."""
+        rows = self.conn.execute(
+            """SELECT s.shop_key,s.name,s.url,s.initialized,s.consecutive_failures,
+                      s.last_checked_at,s.last_success_at,
+                      MAX(r.first_seen_at) AS latest_review_at
+               FROM shops s
+               LEFT JOIN reviews r ON r.shop_key=s.shop_key
+               GROUP BY s.shop_key
+               ORDER BY s.name COLLATE NOCASE"""
+        )
+        for row in rows:
+            failures = int(row["consecutive_failures"])
+            yield {
+                "shop_key": row["shop_key"],
+                "name": row["name"],
+                "url": row["url"],
+                "initialized": bool(row["initialized"]),
+                "consecutive_failures": failures,
+                "last_checked_at": row["last_checked_at"],
+                "last_success_at": row["last_success_at"],
+                "latest_review_at": row["latest_review_at"],
+                "last_result": "failure" if failures else ("success" if row["initialized"] else "pending"),
+            }
 
 
 def _json(value: Any) -> str:

@@ -1,0 +1,11 @@
+# 將此檔複製為 data/portal/content.yaml 後編輯；內容資料夾不會提交至 Git。
+content:
+  - id: summer-event-2026
+    shop_key: "請替換為 config.toml 店家的雜湊代號"
+    published_at: "2026-07-29T09:00:00+08:00"
+    title: "夏日活動"
+    body: "在這裡填入貼文內容。"
+    photos:
+      - data/portal/店家代號/summer.jpg
+    videos:
+      - https://www.youtube.com/watch?v=example

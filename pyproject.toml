@@ -9,11 +9,15 @@ description = "Monitor public Google Maps reviews and notify a Telegram group."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi>=0.115,<1",
   "httpx>=0.27,<1",
+  "Jinja2>=3.1,<4",
   "Pillow>=10,<13",
   "playwright>=1.52,<2",
   "python-dotenv>=1.0,<2",
+  "PyYAML>=6,<7",
   "tzdata>=2025.2",
+  "uvicorn>=0.30,<1",
 ]
 
 [project.optional-dependencies]

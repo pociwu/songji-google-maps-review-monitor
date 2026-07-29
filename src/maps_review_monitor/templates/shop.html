@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ shop.name }}｜Songji 店家狀況{% endblock %}
+{% block content %}
+<p><a class="back" href="/">← 所有店家</a></p><h1>{{ shop.name }}</h1>
+<section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl></section>
+<section><h2>最新動態</h2>
+{% for asset in assets %}<article class="panel asset"><p class="muted">{{ asset.published_at }}</p><h3>{{ asset.title }}</h3><p class="body">{{ asset.body }}</p><div class="media-grid">{% for photo in asset.photo_urls %}<img src="{{ photo }}" alt="{{ asset.title }}">{% endfor %}</div>{% for video in asset.video_items %}{% if video.local %}<video controls preload="metadata" src="{{ video.url }}">您的瀏覽器不支援影片播放。</video>{% else %}<p><a href="{{ video.url }}" target="_blank" rel="noopener">觀看影片 ↗</a></p>{% endif %}{% endfor %}</article>{% else %}<p>尚無最新動態。</p>{% endfor %}
+</section>
+<section><h2>所有評論</h2>
+{% for review in reviews %}<article class="panel review"><div class="review-head">{% if review.avatar_url_local %}<img class="avatar" src="{{ review.avatar_url_local }}" alt="{{ review.author }}">{% endif %}<div><h3>{% if review.profile.url %}<a href="{{ review.profile.url }}" target="_blank" rel="noopener">{{ review.author }}</a>{% else %}{{ review.author }}{% endif %}</h3><p>{{ "★" * (review.stars|int) if review.stars else "未提供星等" }} · {{ review.time_text }}</p></div></div><p class="body">{{ review.text }}</p>{% if review.owner_reply %}<blockquote><strong>店家回覆</strong><br>{{ review.owner_reply.text }}</blockquote>{% endif %}<div class="media-grid">{% for photo in review.photo_urls_local %}<img src="{{ photo }}" alt="{{ review.author }} 的評論照片">{% endfor %}</div></article>{% else %}<p>尚無評論。</p>{% endfor %}
+{% if page > 1 %}<a class="button" href="/shops/{{ shop.shop_key }}?page={{ page - 1 }}">較新的評論</a>{% endif %}{% if has_next %}<a class="button" href="/shops/{{ shop.shop_key }}?page={{ page + 1 }}">載入更多</a>{% endif %}
+</section>
+{% endblock %}
