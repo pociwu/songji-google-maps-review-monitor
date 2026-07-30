@@ -4,7 +4,9 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any
+import unicodedata
 from urllib.parse import quote
 
 import yaml
@@ -201,6 +203,19 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             },
         )
 
+    @app.get("/reviewers", response_class=HTMLResponse)
+    def same_name_reviewers(request: Request) -> HTMLResponse:
+        db = Database(settings.database_path, settings.timezone)
+        try:
+            reviews = [_decorate_review(item) for item in db.iter_reviews()]
+        finally:
+            db.close()
+        return TEMPLATES.TemplateResponse(
+            request,
+            "reviewers.html",
+            {"groups": build_same_name_groups(reviews)},
+        )
+
     @app.get("/api/analysis-status")
     def analysis_status() -> JSONResponse:
         db = Database(settings.database_path, settings.timezone)
@@ -239,6 +254,59 @@ def _decorate_review(review: dict[str, Any]) -> dict[str, Any]:
     review["photo_urls_local"] = [_media_url(path) for path in review.get("photo_paths", [])]
     review["avatar_url_local"] = _media_url(profile["avatar_path"]) if profile.get("avatar_path") else ""
     return review
+
+
+def build_same_name_groups(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group equal display names across shops without assuming identity."""
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for review in reviews:
+        author = str(review.get("author", "")).strip()
+        key = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", author)).casefold()
+        if not key or key in {"匿名評論者", "anonymous"}:
+            continue
+        grouped[key].append(review)
+
+    result = []
+    for members in grouped.values():
+        shops = {str(item.get("shop_key", "")) for item in members}
+        if len(shops) < 2:
+            continue
+        profile_urls = {
+            str((item.get("profile") or {}).get("url", "")).strip()
+            for item in members
+            if str((item.get("profile") or {}).get("url", "")).strip()
+        }
+        missing_profiles = sum(
+            1 for item in members if not str((item.get("profile") or {}).get("url", "")).strip()
+        )
+        if len(profile_urls) == 1 and not missing_profiles:
+            identity_status = "same_profile"
+            identity_text = "相同 Google 個人檔案"
+        elif len(profile_urls) > 1:
+            identity_status = "different_profiles"
+            identity_text = "同名但個人檔案不同，未確認為同一人"
+        else:
+            identity_status = "insufficient"
+            identity_text = "資料不足，未確認為同一人"
+        result.append(
+            {
+                "author": members[0]["author"],
+                "shop_count": len(shops),
+                "review_count": len(members),
+                "profile_count": len(profile_urls),
+                "missing_profiles": missing_profiles,
+                "identity_status": identity_status,
+                "identity_text": identity_text,
+                "reviews": sorted(
+                    members, key=lambda item: str(item.get("first_seen_at", "")), reverse=True
+                ),
+            }
+        )
+    return sorted(
+        result,
+        key=lambda item: (item["shop_count"], item["review_count"], item["author"]),
+        reverse=True,
+    )
 
 
 def _media_url(stored_path: str) -> str:

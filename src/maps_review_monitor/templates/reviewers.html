@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}跨店同名評論者｜Songji{% endblock %}
+{% block content %}
+<h1>跨店同名評論者</h1>
+<p class="muted">此頁只比對 Google Maps 顯示名稱，供人工檢視；同名不代表同一人，也不會納入疑似協同統計。</p>
+{% for group in groups %}
+<details class="panel reviewer-group">
+  <summary>
+    <strong>{{ group.author }}</strong>
+    <span>{{ group.shop_count }} 家店 · {{ group.review_count }} 則評論</span>
+    <span class="identity-status {{ group.identity_status }}">{{ group.identity_text }}</span>
+  </summary>
+  {% for review in group.reviews %}
+  <article class="same-name-review">
+    <div class="row">
+      <h2><a href="/shops/{{ review.shop_key }}">{{ review.shop_name }}</a></h2>
+      <span>{{ review.stars or "未提供" }}★</span>
+    </div>
+    <p class="muted">{{ review.time_text }} · 首次看見 {{ review.first_seen_at }}</p>
+    {% if review.profile.url %}
+      <p><a href="{{ review.profile.url }}" target="_blank" rel="noopener">Google 個人檔案 ↗</a></p>
+    {% else %}
+      <p class="muted">沒有可驗證的 Google 個人檔案網址</p>
+    {% endif %}
+    <p class="body">{{ review.text }}</p>
+    {% if review.owner_reply %}<blockquote><strong>店家回覆</strong><br><span class="body">{{ review.owner_reply.text }}</span></blockquote>{% endif %}
+  </article>
+  {% endfor %}
+</details>
+{% else %}
+<p>目前沒有相同顯示名稱出現在不同店家的紀錄。</p>
+{% endfor %}
+{% endblock %}

@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='portal.css') }}">
 </head>
 <body>
-  <header><nav><a href="/">Songji 店家狀況</a><a href="/analysis">全部店家分析</a></nav></header>
+  <header><nav><a href="/">Songji 店家狀況</a><span class="nav-links"><a href="/analysis">全部店家分析</a><a href="/reviewers">跨店同名</a></span></nav></header>
   <main>{% block content %}{% endblock %}</main>
   <aside class="analysis-progress" id="analysis-progress" hidden aria-live="polite">
     <strong id="analysis-stage">分析中</strong>
