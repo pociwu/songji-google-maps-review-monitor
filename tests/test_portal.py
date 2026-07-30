@@ -49,7 +49,11 @@ enabled = true
         encoding="utf-8",
     )
     client = TestClient(create_app(str(config)))
-    assert client.get("/").status_code == 200
+    home = client.get("/")
+    assert home.status_code == 200
+    assert 'id="similar-review-toggle"' in home.text
+    assert "顯示相似評論統計" in home.text
+    assert "版本 0.2.0" in home.text
     response = client.get("/analysis")
     assert response.status_code == 200
     assert "全部店家分析" in response.text

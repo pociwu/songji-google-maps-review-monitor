@@ -77,6 +77,38 @@
 })();
 
 (() => {
+  const toggle = document.querySelector("#similar-review-toggle");
+  if (!toggle) return;
+  const storageKey = "songji.portal.show-similar-reviews.v1";
+  const counts = [...document.querySelectorAll(".risk-counts")];
+
+  const apply = (visible) => {
+    toggle.checked = visible;
+    counts.forEach((item) => {
+      item.hidden = !visible;
+    });
+  };
+
+  let visible = true;
+  try {
+    const saved = localStorage.getItem(storageKey);
+    visible = saved === null ? true : saved === "true";
+  } catch {
+    visible = true;
+  }
+  apply(visible);
+
+  toggle.addEventListener("change", () => {
+    apply(toggle.checked);
+    try {
+      localStorage.setItem(storageKey, String(toggle.checked));
+    } catch {
+      // The control still works for this page when storage is unavailable.
+    }
+  });
+})();
+
+(() => {
   const container = document.querySelector("#analysis-progress");
   if (!container) return;
   const stage = document.querySelector("#analysis-stage");

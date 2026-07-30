@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maps-review-monitor"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Monitor public Google Maps reviews and notify a Telegram group."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,9 @@ maps-review-monitor = "maps_review_monitor.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "maps_review_monitor.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

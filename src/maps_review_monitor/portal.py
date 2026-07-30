@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from .config import load_settings
 from .database import Database
+from . import __version__
 
 
 PACKAGE_DIR = Path(__file__).parent
@@ -81,7 +82,9 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         shops = shop_statuses()
         for shop in shops:
             shop["latest_asset"] = (assets_by_shop.get(shop["shop_key"]) or [None])[0]
-        return TEMPLATES.TemplateResponse(request, "index.html", {"shops": shops})
+        return TEMPLATES.TemplateResponse(
+            request, "index.html", {"shops": shops, "version": __version__}
+        )
 
     @app.get("/shops/{shop_key}", response_class=HTMLResponse)
     def shop_page(
