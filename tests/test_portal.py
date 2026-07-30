@@ -57,7 +57,7 @@ enabled = true
     assert "顯示疑似協同評論" in home.text
     assert "hide-highly-similar" in home.text
     assert "hide-suspected" in home.text
-    assert "版本 0.3.0" in home.text
+    assert "版本 0.3.1" in home.text
     assert 'href="/reviewers"' in home.text
     css = client.get("/static/portal.css")
     assert css.status_code == 200

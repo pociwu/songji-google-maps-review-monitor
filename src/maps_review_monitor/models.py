@@ -56,8 +56,6 @@ class ReviewSnapshot:
             "author": self.author,
             "stars": self.stars,
             "text": self.text,
-            "profile_url": self.profile.url,
-            "photo_urls": self.photo_urls,
         })
 
     def reply_hash(self) -> str:

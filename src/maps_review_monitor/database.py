@@ -254,14 +254,16 @@ class Database:
                 ),
             )
         else:
-            if row["content_hash"] != content_hash:
+            previous = ReviewSnapshot.from_dict(json.loads(row["snapshot_json"]))
+            content_changed = previous.content_hash() != content_hash
+            if content_changed:
                 self.conn.execute(
                     """INSERT OR IGNORE INTO review_versions(
                            shop_key,review_id,content_hash,snapshot_json,captured_at
                        ) VALUES(?,?,?,?,?)""",
                     (review.shop_key, review.review_id, row["content_hash"], row["snapshot_json"], now),
                 )
-            if notify and row["content_hash"] != content_hash:
+            if notify and content_changed:
                 event_types.append("review_updated")
             if notify and row["reply_hash"] != reply_hash:
                 event_types.append("owner_reply_added" if review.owner_reply else "owner_reply_removed")

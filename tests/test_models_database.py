@@ -21,6 +21,29 @@ def test_hash_excludes_local_paths():
     assert first.content_hash() == second.content_hash()
 
 
+def test_remote_metadata_changes_do_not_trigger_review_update(tmp_path: Path):
+    db = Database(tmp_path / "db.sqlite3")
+    db.sync_shop("s1", "店家", "https://google.com/maps/x")
+    first = sample()
+    db.upsert_review(first, notify=False)
+    # Simulate a row whose hash was produced by the previous hash scheme.
+    db.conn.execute(
+        "UPDATE reviews SET content_hash='legacy-hash' WHERE shop_key='s1' AND review_id='r1'"
+    )
+    db.conn.commit()
+
+    second = sample()
+    second.profile.url = "https://google.com/maps/contrib/1/reviews?hl=zh-TW"
+    second.photo_urls = ["https://lh3.googleusercontent.com/new-signed-token"]
+
+    assert db.upsert_review(second, notify=True) == []
+    stored = db.get_review("s1", "r1")
+    assert stored is not None
+    assert stored.profile.url == second.profile.url
+    assert stored.photo_urls == second.photo_urls
+    db.close()
+
+
 def test_relative_times_and_profile_totals_do_not_trigger_updates():
     first = sample(reply=OwnerReply("謝謝", "1 天前"))
     second = sample(reply=OwnerReply("謝謝", "2 天前"))
@@ -28,6 +51,19 @@ def test_relative_times_and_profile_totals_do_not_trigger_updates():
     second.profile.review_count = 99
     assert first.content_hash() == second.content_hash()
     assert first.reply_hash() == second.reply_hash()
+
+
+def test_author_rating_and_text_remain_notification_content():
+    baseline = sample()
+    renamed = sample()
+    renamed.author = "小華"
+    rerated = sample()
+    rerated.stars = 4
+    rewritten = sample("真的很好")
+
+    assert baseline.content_hash() != renamed.content_hash()
+    assert baseline.content_hash() != rerated.content_hash()
+    assert baseline.content_hash() != rewritten.content_hash()
 
 
 def test_database_detects_new_update_and_reply(tmp_path: Path):
