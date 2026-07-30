@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}搜尋｜Songji{% endblock %}
+{% block content %}
+<h1>搜尋</h1>
+{% if not query %}
+<p>請輸入店家、評論者、評論內容、店家回覆或貼文關鍵字。</p>
+{% else %}
+<p>「{{ query }}」共找到 {{ total }} 筆結果。</p>
+
+<section>
+  <h2>店家（{{ shop_results|length }}）</h2>
+  {% for shop in shop_results %}
+  <article class="panel search-result">
+    <h3><a href="/shops/{{ shop.shop_key }}">{{ shop.name }}</a></h3>
+    <p>最近結果：{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</p>
+  </article>
+  {% else %}<p class="muted">沒有符合的店家。</p>{% endfor %}
+</section>
+
+<section>
+  <h2>評論（{{ review_results|length }}）</h2>
+  {% for review in review_results %}
+  <article class="panel search-result">
+    <div class="row">
+      <h3><a href="/shops/{{ review.shop_key }}">{{ review.shop_name }}</a></h3>
+      <span>{{ review.stars or "未提供" }}★</span>
+    </div>
+    <p><strong>{{ review.author }}</strong> · {{ review.time_text }}</p>
+    <p class="body">{{ review.text }}</p>
+    {% if review.owner_reply %}<blockquote><strong>店家回覆</strong><br><span class="body">{{ review.owner_reply.text }}</span></blockquote>{% endif %}
+  </article>
+  {% else %}<p class="muted">沒有符合的評論。</p>{% endfor %}
+</section>
+
+<section>
+  <h2>貼文（{{ asset_results|length }}）</h2>
+  {% for asset in asset_results %}
+  <article class="panel search-result">
+    <p class="muted">{{ asset.shop_name }} · {{ asset.published_at }}</p>
+    <h3><a href="/shops/{{ asset.shop_key }}">{{ asset.title }}</a></h3>
+    <p class="body">{{ asset.body }}</p>
+  </article>
+  {% else %}<p class="muted">沒有符合的貼文。</p>{% endfor %}
+</section>
+{% endif %}
+{% endblock %}

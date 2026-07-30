@@ -88,6 +88,23 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             request, "index.html", {"shops": shops, "version": __version__}
         )
 
+    @app.get("/search", response_class=HTMLResponse)
+    def search_page(request: Request, q: str = "") -> HTMLResponse:
+        query = q.strip()[:100]
+        shops = shop_statuses()
+        assets = portal_assets()
+        db = Database(settings.database_path, settings.timezone)
+        try:
+            reviews = [_decorate_review(item) for item in db.iter_reviews()]
+        finally:
+            db.close()
+        results = build_search_results(query, shops, reviews, assets)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "search.html",
+            {"query": query, **results},
+        )
+
     @app.get("/shops/{shop_key}", response_class=HTMLResponse)
     def shop_page(
         request: Request, shop_key: str, page: int = 1, view: str = "all"
@@ -307,6 +324,63 @@ def build_same_name_groups(reviews: list[dict[str, Any]]) -> list[dict[str, Any]
         key=lambda item: (item["shop_count"], item["review_count"], item["author"]),
         reverse=True,
     )
+
+
+def build_search_results(
+    query: str,
+    shops: list[dict[str, Any]],
+    reviews: list[dict[str, Any]],
+    assets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Search public portal content using normalized, case-insensitive tokens."""
+    tokens = _search_text(query).split()
+    if not tokens:
+        return {
+            "shop_results": [],
+            "review_results": [],
+            "asset_results": [],
+            "total": 0,
+        }
+
+    def matches(*values: Any) -> bool:
+        haystack = _search_text(" ".join(str(value or "") for value in values))
+        return all(token in haystack for token in tokens)
+
+    shop_results = [
+        shop for shop in shops if matches(shop.get("name"), shop.get("url"))
+    ]
+    review_results = []
+    for review in reviews:
+        reply = review.get("owner_reply") or {}
+        if matches(
+            review.get("shop_name"),
+            review.get("author"),
+            review.get("text"),
+            reply.get("text"),
+        ):
+            review_results.append(review)
+    shop_names = {shop["shop_key"]: shop["name"] for shop in shops}
+    asset_results = []
+    for asset in assets:
+        if matches(
+            shop_names.get(asset.get("shop_key"), ""),
+            asset.get("title"),
+            asset.get("body"),
+        ):
+            item = dict(asset)
+            item["shop_name"] = shop_names.get(item.get("shop_key"), "未知店家")
+            asset_results.append(item)
+    return {
+        "shop_results": shop_results,
+        "review_results": review_results[:100],
+        "asset_results": asset_results[:100],
+        "total": len(shop_results) + len(review_results) + len(asset_results),
+    }
+
+
+def _search_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _media_url(stored_path: str) -> str:

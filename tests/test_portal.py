@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from maps_review_monitor.portal import build_same_name_groups, create_app, load_content_assets
+from maps_review_monitor.portal import (
+    build_same_name_groups,
+    build_search_results,
+    create_app,
+    load_content_assets,
+)
 
 
 def test_load_content_assets_sorts_newest_first(tmp_path: Path):
@@ -57,8 +62,9 @@ enabled = true
     assert "顯示疑似協同評論" in home.text
     assert "hide-highly-similar" in home.text
     assert "hide-suspected" in home.text
-    assert "版本 0.3.1" in home.text
+    assert "版本 0.4.0" in home.text
     assert 'href="/reviewers"' in home.text
+    assert 'id="global-search-input"' in home.text
     css = client.get("/static/portal.css")
     assert css.status_code == 200
     assert ".hide-highly-similar .similar-only" in css.text
@@ -69,6 +75,9 @@ enabled = true
     status = client.get("/api/analysis-status").json()
     assert status["status"] == "none"
     assert client.get("/reviewers").status_code == 200
+    search = client.get("/search?q=測試")
+    assert search.status_code == 200
+    assert "搜尋" in search.text
 
 
 def test_same_name_groups_are_cross_shop_and_do_not_assume_identity():
@@ -103,3 +112,30 @@ def test_same_name_groups_are_cross_shop_and_do_not_assume_identity():
     assert groups[0]["shop_count"] == 2
     assert groups[0]["identity_status"] == "different_profiles"
     assert "未確認為同一人" in groups[0]["identity_text"]
+
+
+def test_search_results_cover_shops_reviews_replies_and_assets():
+    shops = [{"shop_key": "a", "name": "松肌虎尾店", "url": "https://google.com/a"}]
+    reviews = [
+        {
+            "shop_key": "a",
+            "shop_name": "松肌虎尾店",
+            "author": "Alice",
+            "text": "老師很親切，讓人放鬆",
+            "owner_reply": {"text": "感謝您的推薦"},
+        }
+    ]
+    assets = [
+        {
+            "id": "post",
+            "shop_key": "a",
+            "title": "八月公告",
+            "body": "營業時間調整",
+        }
+    ]
+
+    assert build_search_results("虎尾", shops, reviews, assets)["shop_results"]
+    assert build_search_results("ALICE 放鬆", shops, reviews, assets)["review_results"]
+    assert build_search_results("感謝 推薦", shops, reviews, assets)["review_results"]
+    assert build_search_results("八月 營業", shops, reviews, assets)["asset_results"]
+    assert build_search_results("不存在", shops, reviews, assets)["total"] == 0
