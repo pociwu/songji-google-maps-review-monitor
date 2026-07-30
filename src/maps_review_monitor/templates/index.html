@@ -17,6 +17,10 @@
       <p>最近結果：{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</p>
       <p>上次查詢：{{ shop.last_checked_at or "尚無紀錄" }}</p>
       <p>最新評論：{{ shop.latest_review_at or "尚無評論" }}</p>
+      <div class="risk-counts">
+        <span>高度相似 <strong>{{ shop.similar }}</strong></span>
+        <span class="danger">疑似協同 <strong>{{ shop.suspected }}</strong></span>
+      </div>
       {% if shop.latest_asset %}<p class="muted">最新動態：{{ shop.latest_asset.title }}</p>{% endif %}
     </a>
   </article>

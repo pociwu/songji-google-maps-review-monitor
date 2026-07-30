@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}全部店家分析｜Songji{% endblock %}
+{% block content %}
+<h1>全部店家分析</h1>
+<p class="muted">目前結果只使用完整成功的分析快照；分析失敗不會覆蓋上一版。</p>
+{% if status and status.status == "failed" %}<p class="panel failure">最近一次分析未完成：{{ status.error or status.stage }}。目前仍顯示上一版完整結果。</p>{% endif %}
+<nav class="tabs">
+  <a class="{{ 'active' if scope == 'same' }}" href="?scope=same&direction={{ direction }}&sort={{ sort }}">同店</a>
+  <a class="{{ 'active' if scope == 'cross' }}" href="?scope=cross&direction={{ direction }}&sort={{ sort }}">跨店</a>
+</nav>
+<form class="filters" method="get">
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <label>方向 <select name="direction">
+    {% for value,label in [('all','全部'),('positive','正向'),('negative','負向'),('mixed','混合／三星')] %}
+    <option value="{{ value }}" {{ 'selected' if direction == value }}>{{ label }}</option>
+    {% endfor %}
+  </select></label>
+  <label>排序 <select name="sort">
+    {% for value,label in [('count','疑似篇數'),('similarity','最高相似度'),('latest','最新')] %}
+    <option value="{{ value }}" {{ 'selected' if sort == value }}>{{ label }}</option>
+    {% endfor %}
+  </select></label>
+  <button type="submit">套用</button>
+</form>
+{% for group in groups %}
+<article class="panel">
+  <div class="row"><h2>{{ "疑似協同評論" if group.label == "suspected" else "內容高度相似" }}</h2><span class="risk-label {{ group.label }}">{{ {"positive":"正向","negative":"負向","mixed":"混合"}[group.direction] }}</span></div>
+  <p>{{ group.review_count }} 則評論 · {{ group.shop_count }} 家店 · 字面最高 {{ "%.0f"|format(group.max_lexical * 100) }}% · 語意最高 {{ "%.0f"|format(group.max_semantic * 100) }}%</p>
+  {% if group.evidence %}<ul>{% for item in group.evidence %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+  <a href="/analysis/groups/{{ group.group_id }}">查看完整評論與證據 →</a>
+</article>
+{% else %}<p>目前沒有符合條件的群組。</p>{% endfor %}
+{% endblock %}

@@ -43,6 +43,35 @@ sudo journalctl -u maps-review-monitor.service -n 100 --no-pager
 - `maps-review-monitor doctor` 是否能通過 Chromium 與 Telegram 檢查。
 - `logs/` 與 `debug/` 是否有 Google Maps 頁面或登入相關紀錄。
 
+## 相似評論分析
+
+分析只使用評論者全文，不把店家回覆或人工貼文納入分數。預設門檻為中文字符相似度 85% 或語意相似度 92%；低於 12 個有效中文字的短評，只有同一分析範圍內至少 3 則完全相同才會納入。
+
+監控批次結束後會自動分析，也可手動重跑所有歷史資料：
+
+```bash
+cd /opt/maps-review-monitor
+conda run --no-capture-output -n maps-review-monitor \
+  maps-review-monitor --config /opt/maps-review-monitor/config.toml analyze
+```
+
+首次執行會下載 `intfloat/multilingual-e5-small`。分析使用一個 CPU 執行緒並繼承 systemd 的 `Nice=10`；OCI 降為 2 CPU 時不需調整。若模型載入或分析失敗，新結果不會成為目前快照，監控與 Telegram 仍照常完成。
+
+排除規則：
+
+```bash
+cp data/portal/review-analysis.example.yaml data/portal/review-analysis.yaml
+```
+
+可排除特定評論、群組指紋或常見固定用語。每筆規則都必須填寫 `reason`，原始評論與舊分析快照仍會保存。
+
+查看最近狀態：
+
+```bash
+sqlite3 data/reviews.sqlite3 \
+  "SELECT id,status,stage,percent,processed,total,error,started_at,completed_at FROM analysis_runs ORDER BY id DESC LIMIT 5;"
+```
+
 ## 確認 Windows 排程
 
 ```powershell
@@ -73,7 +102,7 @@ maps-review-monitor restore backups/maps-review-monitor-YYYYMMDD-HHMMSS.zip --fo
 切換到另一台排程主機前，先停用原主機 timer 或工作排程器，再備份、傳送 ZIP 並還原，以避免兩個監控程序同時寫入同一組資料。
 ## 店家展示頁
 
-展示頁與評論監控使用相同的 Python 環境與資料目錄，但為獨立 systemd 服務。它不會寫入 SQLite 資料庫，只讀取評論、監控狀況和 `data/portal/content.yaml`。
+展示頁與評論監控使用相同的 Python 環境與資料目錄，但為獨立 systemd 服務。它讀取評論、監控狀況、完整成功的分析快照和 `data/portal/content.yaml`。
 
 首次部署或程式更新後，請在專案根目錄執行：
 

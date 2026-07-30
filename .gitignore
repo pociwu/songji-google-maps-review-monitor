@@ -1,6 +1,7 @@
 .env
 config.toml
 .pytest_cache/
+.test-tmp/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -10,6 +11,7 @@ data/*
 !data/portal/
 data/portal/*
 !data/portal/content.example.yaml
+!data/portal/review-analysis.example.yaml
 logs/
 debug/
 backups/

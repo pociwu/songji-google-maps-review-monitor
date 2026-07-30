@@ -7,6 +7,10 @@ Wants=network-online.target
 Type=oneshot
 User=ubuntu
 Environment=HOME=/home/ubuntu
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=TOKENIZERS_PARALLELISM=false
 WorkingDirectory=/opt/maps-review-monitor
 ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1440x1100x24" /home/ubuntu/miniconda3/bin/conda run --no-capture-output -n maps-review-monitor maps-review-monitor --config /opt/maps-review-monitor/config.toml check
 Nice=10

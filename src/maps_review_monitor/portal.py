@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -64,11 +64,13 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         db = Database(settings.database_path, settings.timezone)
         try:
             statuses = list(db.iter_shop_statuses())
+            analysis_counts = db.analysis_shop_counts()
         finally:
             db.close()
         configured = {shop.key: shop.enabled for shop in settings.shops}
         for item in statuses:
             item["enabled"] = configured.get(item["shop_key"], False)
+            item.update(analysis_counts.get(item["shop_key"], {"similar": 0, "suspected": 0}))
         return statuses
 
     @app.get("/", response_class=HTMLResponse)
@@ -82,8 +84,12 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         return TEMPLATES.TemplateResponse(request, "index.html", {"shops": shops})
 
     @app.get("/shops/{shop_key}", response_class=HTMLResponse)
-    def shop_page(request: Request, shop_key: str, page: int = 1) -> HTMLResponse:
+    def shop_page(
+        request: Request, shop_key: str, page: int = 1, view: str = "all"
+    ) -> HTMLResponse:
         if page < 1:
+            raise HTTPException(404)
+        if view not in {"all", "similar", "suspected"}:
             raise HTTPException(404)
         status = next((item for item in shop_statuses() if item["shop_key"] == shop_key), None)
         if status is None:
@@ -91,8 +97,33 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         db = Database(settings.database_path, settings.timezone)
         try:
             reviews = [_decorate_review(item) for item in db.iter_reviews(shop_key)]
+            review_analysis = db.review_analysis(shop_key)
+            groups = db.analysis_groups(shop_key=shop_key)
+            group_links: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+            run_id = db.current_analysis_run_id()
+            if run_id is not None:
+                for row in db.conn.execute(
+                    """SELECT group_id,shop_key,review_id FROM analysis_group_reviews
+                       WHERE run_id=? AND shop_key=?""",
+                    (run_id, shop_key),
+                ):
+                    group_links[(row["shop_key"], row["review_id"])].append(
+                        {"group_id": row["group_id"]}
+                    )
         finally:
             db.close()
+        for review in reviews:
+            key = (review["shop_key"], review["review_id"])
+            value = review_analysis.get(key, {})
+            review["analysis_label"] = value.get("label", "")
+            review["analysis_direction"] = value.get("direction", "")
+            review["max_lexical"] = value.get("max_lexical", 0)
+            review["max_semantic"] = value.get("max_semantic", 0)
+            review["analysis_groups"] = group_links.get(key, [])
+        if view == "similar":
+            reviews = [item for item in reviews if item["analysis_label"] in {"highly_similar", "suspected"}]
+        elif view == "suspected":
+            reviews = [item for item in reviews if item["analysis_label"] == "suspected"]
         page_size = 20
         start = (page - 1) * page_size
         shown = reviews[start : start + page_size]
@@ -103,10 +134,80 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
                 "shop": status,
                 "assets": [asset for asset in portal_assets() if asset["shop_key"] == shop_key],
                 "reviews": shown,
+                "groups": groups,
+                "view": view,
+                "review_count": len(reviews),
                 "page": page,
                 "has_next": len(reviews) > start + page_size,
             },
         )
+
+    @app.get("/analysis", response_class=HTMLResponse)
+    def analysis_page(
+        request: Request,
+        scope: str = "same",
+        direction: str = "all",
+        sort: str = "count",
+    ) -> HTMLResponse:
+        if scope not in {"same", "cross"} or direction not in {"all", "positive", "negative", "mixed"}:
+            raise HTTPException(404)
+        if sort not in {"count", "similarity", "latest"}:
+            raise HTTPException(404)
+        db = Database(settings.database_path, settings.timezone)
+        try:
+            groups = db.analysis_groups(scope=scope)
+            status = db.analysis_status()
+        finally:
+            db.close()
+        if direction != "all":
+            groups = [group for group in groups if group["direction"] == direction]
+        sort_keys = {
+            "count": lambda group: (group["review_count"], group["max_semantic"]),
+            "similarity": lambda group: (max(group["max_lexical"], group["max_semantic"]), group["review_count"]),
+            "latest": lambda group: (group["latest_at"] or "", group["review_count"]),
+        }
+        groups.sort(key=sort_keys[sort], reverse=True)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "analysis.html",
+            {"groups": groups, "scope": scope, "direction": direction, "sort": sort, "status": status},
+        )
+
+    @app.get("/analysis/groups/{group_id}", response_class=HTMLResponse)
+    def analysis_group_page(request: Request, group_id: str) -> HTMLResponse:
+        db = Database(settings.database_path, settings.timezone)
+        try:
+            result = db.analysis_group(group_id)
+        finally:
+            db.close()
+        if result is None:
+            raise HTTPException(404)
+        group, reviews = result
+        data_notes = []
+        if any(not (item.get("profile") or {}).get("url") for item in reviews):
+            data_notes.append("資料不足：部分評論缺少 Google 個人檔案網址，不能作為重複評論者佐證。")
+        if any(not (item.get("estimated_posted_date") or item.get("back_calculated_at")) for item in reviews):
+            data_notes.append("資料不足：部分評論缺少可驗證發布日期，不能作為時間集中佐證。")
+        return TEMPLATES.TemplateResponse(
+            request,
+            "analysis-group.html",
+            {
+                "group": group,
+                "reviews": [_decorate_review(item) for item in reviews],
+                "data_notes": data_notes,
+            },
+        )
+
+    @app.get("/api/analysis-status")
+    def analysis_status() -> JSONResponse:
+        db = Database(settings.database_path, settings.timezone)
+        try:
+            status = db.analysis_status() or {
+                "status": "none", "stage": "尚未執行", "percent": 0, "processed": 0, "total": 0
+            }
+        finally:
+            db.close()
+        return JSONResponse(status)
 
     @app.get("/media/{stored_path:path}")
     def media(stored_path: str) -> FileResponse:

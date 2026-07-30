@@ -7,6 +7,9 @@
 - 最多監控 10 間 Google Maps 店家。
 - 偵測新增評論、評論內容更新、店家回覆新增或移除。
 - 保存評論快照與觀測紀錄，支援推估相對時間評論的發布日期。
+- 展開並保存評論與店家回覆全文，保留換行與評論編輯歷史。
+- 在本機以中文字符比對與 `multilingual-e5-small` ONNX 語意向量分析同店／跨店相似評論。
+- 提供相似評論群組、佐證、正負向分類、篩選、統計與分析百分比進度。
 - 將通知拆分、佇列化並於失敗時以指數退避重試。
 - 提供 SQLite、Chromium、Telegram 設定檢查，以及 CSV／JSON 匯出與 ZIP 備份還原。
 - 支援 Ubuntu 的 systemd timer 與 Windows 工作排程器。
@@ -21,7 +24,7 @@
 ## 快速開始
 
 ```bash
-git clone <你的私有儲存庫網址>
+git clone https://github.com/pociwu/songji-google-maps-review-monitor.git
 cd songji-google-maps-review-monitor
 conda env create -f environment.yml
 conda activate maps-review-monitor
@@ -82,6 +85,7 @@ maps-review-monitor export --format csv --output reviews.csv
 maps-review-monitor export --format json --output reviews.json
 maps-review-monitor backup
 maps-review-monitor restore backups/maps-review-monitor-YYYYMMDD-HHMMSS.zip --force
+maps-review-monitor analyze
 ```
 
 ## 排程
@@ -124,6 +128,8 @@ pytest
 
 人工貼文、照片與影片以檔案方式管理：將 `data/portal/content.example.yaml` 複製為 `data/portal/content.yaml`，並依範例新增內容；本機素材放在 `data/portal/<店家代號>/`。`shop_key` 是店家 Google Maps URL 的 SHA-256 前 16 碼，可由現有 SQLite 的 `shops` 資料表查得。
 
+相似評論分析完全在 OCI 主機本機執行，不使用外部 AI API。每次監控結束後會獨立執行；失敗時不影響監控、Telegram 或上一版分析結果。可將 `data/portal/review-analysis.example.yaml` 複製為 `review-analysis.yaml`，依理由排除特定評論、群組或常見固定用語。
+
 在 Ubuntu 安裝或更新依賴後啟用服務：
 
 ```bash
@@ -132,6 +138,22 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now maps-review-portal.service
 systemctl status maps-review-portal.service
 ```
+
+### OCI 既有安裝更新
+
+```bash
+cd /opt/maps-review-monitor
+git pull --ff-only origin main
+conda env update -n maps-review-monitor -f environment.yml --prune
+sudo cp deploy/systemd/maps-review-monitor.service /etc/systemd/system/
+sudo cp deploy/systemd/maps-review-portal.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl restart maps-review-portal.service
+maps-review-monitor --config /opt/maps-review-monitor/config.toml analyze
+sudo systemctl enable --now maps-review-monitor.timer
+```
+
+第一次執行 `analyze` 會下載約 0.1B 參數的本機模型，所需時間較長。網頁右下角會顯示分析階段與百分比；後續批次會重用模型快取。
 
 查看完整部署與操作說明請見 [操作手冊](docs/operations.md)。
 

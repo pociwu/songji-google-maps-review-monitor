@@ -75,3 +75,34 @@
     handle.focus();
   });
 })();
+
+(() => {
+  const container = document.querySelector("#analysis-progress");
+  if (!container) return;
+  const stage = document.querySelector("#analysis-stage");
+  const meter = document.querySelector("#analysis-meter");
+  const percent = document.querySelector("#analysis-percent");
+  let wasRunning = false;
+
+  const refresh = async () => {
+    try {
+      const response = await fetch("/api/analysis-status", { cache: "no-store" });
+      const value = await response.json();
+      const running = value.status === "running";
+      container.hidden = !running;
+      if (running) {
+        wasRunning = true;
+        stage.textContent = `${value.stage}（${value.processed}/${value.total}）`;
+        meter.value = value.percent;
+        percent.textContent = `${value.percent}%`;
+      } else if (wasRunning && value.status === "completed") {
+        window.location.reload();
+        return;
+      }
+    } catch {
+      container.hidden = true;
+    }
+    window.setTimeout(refresh, 5000);
+  };
+  refresh();
+})();

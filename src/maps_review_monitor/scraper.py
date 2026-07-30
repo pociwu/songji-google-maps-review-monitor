@@ -190,7 +190,10 @@ class MapsScraper:
             # Extract every card before navigating away. Profile enrichment
             # then reuses the same natural Chromium tab instead of repeatedly
             # creating and closing automation-created tabs.
-            extracted = [self._extract_card(card) for card in cards]
+            extracted = []
+            for card in cards:
+                self._expand_card_text(card)
+                extracted.append(self._extract_card(card))
             merged = merge_review_parts(extracted)
             complete_reviews = [
                 raw for raw in merged
@@ -409,10 +412,29 @@ class MapsScraper:
             return legacy
         return scope.locator("div.GHT2ce:visible")
 
+    @staticmethod
+    def _expand_card_text(card: Locator) -> None:
+        """Expand reviewer and owner-reply text without clicking controls outside the card."""
+        selectors = (
+            "button.w8nwRe",
+            "button[jsaction*='expandReview']",
+            "button[aria-label='全文']",
+            "button[aria-label='更多']",
+            "button[aria-label='More']",
+        )
+        try:
+            buttons = card.locator(",".join(selectors))
+            for index in range(min(buttons.count(), 4)):
+                button = buttons.nth(index)
+                if button.is_visible():
+                    button.click(timeout=2000)
+        except Exception as exc:
+            LOG.debug("展開評論全文失敗，改以目前 DOM 內容擷取：%s", exc)
+
     def _extract_card(self, card: Locator) -> dict:
         return card.evaluate("""node => {
           const pick = sels => { for (const s of sels) { const e=node.querySelector(s); if(e) return e; } return null; };
-          const text = sels => (pick(sels)?.textContent || '').trim();
+          const text = sels => (pick(sels)?.innerText || pick(sels)?.textContent || '').trim();
           const attr = (sels, name) => pick(sels)?.getAttribute(name) || '';
           const urls = new Set();
           node.querySelectorAll('button[style*="background-image"], div[style*="background-image"]').forEach(e => {
@@ -432,7 +454,7 @@ class MapsScraper:
             time_text: text(['.rsqaWe','.dehysf']),
             review_text: text(['.wiI7pd','.MyEned']),
             photo_urls: [...urls].filter(x => x.includes('googleusercontent') || x.includes('ggpht')),
-            reply_text: replyNode ? (replyNode.querySelector('.wiI7pd,.MyEned')?.textContent || replyNode.textContent || '').trim() : '',
+            reply_text: replyNode ? (replyNode.querySelector('.wiI7pd,.MyEned')?.innerText || replyNode.querySelector('.wiI7pd,.MyEned')?.textContent || replyNode.innerText || replyNode.textContent || '').trim() : '',
             reply_time: replyNode ? (replyNode.querySelector('.rsqaWe,.DZSIDd')?.textContent || '').trim() : ''
           };
         }""")

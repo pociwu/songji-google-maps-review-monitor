@@ -5,5 +5,4 @@ dependencies:
   - python=3.12
   - pip
   - pip:
-      - -e .[test]
-
+      - -e .[analysis,test]

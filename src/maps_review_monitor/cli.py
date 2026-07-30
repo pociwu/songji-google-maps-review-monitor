@@ -35,6 +35,7 @@ def parser() -> argparse.ArgumentParser:
     restore.add_argument("archive")
     restore.add_argument("--force", action="store_true")
     commands.add_parser("interactive-login", help="手動處理 Google 同意或登入頁")
+    commands.add_parser("analyze", help="手動重新分析所有已儲存評論")
     return root
 
 
@@ -73,6 +74,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "interactive-login":
             return interactive_login(settings)
+        if args.command == "analyze":
+            from .analysis import run_analysis
+
+            with process_lock(settings.root / ".monitor.lock"):
+                result = run_analysis(settings)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
     except Exception as exc:
         print(f"錯誤：{exc}", file=sys.stderr)
         return 2

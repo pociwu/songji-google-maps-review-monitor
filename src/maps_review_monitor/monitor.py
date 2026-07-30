@@ -33,7 +33,10 @@ def enqueue_system(db: Database, event_key: str, event_type: str, shop_key: str,
 
 
 def run_check(settings: Settings, baseline_only: bool = False) -> dict[str, int]:
-    stats = {"shops_ok": 0, "shops_failed": 0, "reviews": 0, "events": 0, "sent": 0, "send_failed": 0}
+    stats = {
+        "shops_ok": 0, "shops_failed": 0, "reviews": 0, "events": 0,
+        "sent": 0, "send_failed": 0, "analysis_ok": 0, "analysis_failed": 0,
+    }
     db = Database(settings.database_path, settings.timezone)
     telegram = None
     telegram_budget = settings.telegram_batch_limit
@@ -94,6 +97,15 @@ def run_check(settings: Settings, baseline_only: bool = False) -> dict[str, int]
             )
             stats["sent"] += sent
             stats["send_failed"] += failed
+        if settings.analysis_enabled:
+            try:
+                from .analysis import run_analysis
+
+                run_analysis(settings)
+                stats["analysis_ok"] = 1
+            except Exception:
+                stats["analysis_failed"] = 1
+                LOG.exception("評論相似度分析失敗；監控與通知結果不受影響")
         return stats
     finally:
         if telegram:

@@ -1,0 +1,13 @@
+# 複製為 review-analysis.yaml 後使用。每一筆排除規則都必須說明原因。
+exclude_reviews:
+  # - shop_key: "店家識別碼"
+  #   review_id: "Google 評論識別碼"
+  #   reason: "已確認為品牌正式活動文案"
+
+exclude_groups:
+  # - fingerprint: "群組頁顯示的 fingerprint"
+  #   reason: "人工確認並非異常"
+
+common_phrases:
+  # - text: "謝謝光臨"
+  #   reason: "常見固定用語，不納入相似度"

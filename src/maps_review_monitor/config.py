@@ -42,6 +42,11 @@ class Settings:
     telegram_send_delay_min_seconds: float
     telegram_send_delay_max_seconds: float
     telegram_batch_limit: int
+    analysis_enabled: bool
+    analysis_model: str
+    analysis_lexical_threshold: float
+    analysis_semantic_threshold: float
+    analysis_rules_path: Path
     data_dir: Path
     log_dir: Path
     debug_dir: Path
@@ -94,6 +99,10 @@ def load_settings(config_path: str | Path = "config.toml", require_telegram: boo
     telegram_batch_limit = int(raw.get("telegram_batch_limit", 15))
     if not 1 <= telegram_batch_limit <= 100:
         raise ValueError("telegram_batch_limit 必須介於 1 與 100")
+    lexical_threshold = float(raw.get("analysis_lexical_threshold", 0.85))
+    semantic_threshold = float(raw.get("analysis_semantic_threshold", 0.92))
+    if not 0 <= lexical_threshold <= 1 or not 0 <= semantic_threshold <= 1:
+        raise ValueError("分析相似度門檻必須介於 0 與 1")
     return Settings(
         root=path.parent, timezone=str(raw.get("timezone", "Asia/Taipei")),
         locale=str(raw.get("locale", "zh-TW")), scan_limit=scan_limit,
@@ -108,6 +117,11 @@ def load_settings(config_path: str | Path = "config.toml", require_telegram: boo
         telegram_send_delay_min_seconds=telegram_delay[0],
         telegram_send_delay_max_seconds=telegram_delay[1],
         telegram_batch_limit=telegram_batch_limit,
+        analysis_enabled=bool(raw.get("analysis_enabled", True)),
+        analysis_model=str(raw.get("analysis_model", "intfloat/multilingual-e5-small")),
+        analysis_lexical_threshold=lexical_threshold,
+        analysis_semantic_threshold=semantic_threshold,
+        analysis_rules_path=rel("analysis_rules_path", "data/portal/review-analysis.yaml"),
         data_dir=rel("data_dir", "data"), log_dir=rel("log_dir", "logs"),
         debug_dir=rel("debug_dir", "debug"), shops=shops,
         telegram_bot_token=token, telegram_chat_id=chat_id,

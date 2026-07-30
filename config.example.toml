@@ -8,9 +8,13 @@ navigation_timeout_seconds = 45
 data_dir = "data"
 log_dir = "logs"
 debug_dir = "debug"
+analysis_enabled = true
+analysis_model = "intfloat/multilingual-e5-small"
+analysis_lexical_threshold = 0.85
+analysis_semantic_threshold = 0.92
+analysis_rules_path = "data/portal/review-analysis.yaml"
 
 [[shops]]
 name = "範例店家"
 url = "https://www.google.com/maps/place/..."
 enabled = true
-

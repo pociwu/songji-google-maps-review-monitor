@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}相似評論群組｜Songji{% endblock %}
+{% block content %}
+<p><a class="back" href="/analysis?scope={{ group.scope }}">← 全部店家分析</a></p>
+<h1>{{ "疑似協同評論" if group.label == "suspected" else "內容高度相似" }}</h1>
+<section class="panel">
+  <p>範圍：{{ "同店" if group.scope == "same" else "跨店" }} · {{ group.review_count }} 則 · {{ group.shop_count }} 家店</p>
+  <p>字面最高 {{ "%.0f"|format(group.max_lexical * 100) }}% · 語意最高 {{ "%.0f"|format(group.max_semantic * 100) }}%</p>
+  <p class="muted">群組指紋：{{ group.fingerprint }}</p>
+  {% if group.evidence %}<h2>佐證</h2><ul>{% for item in group.evidence %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p>只有內容相似，尚無足夠佐證，因此未標為疑似協同。</p>{% endif %}
+  {% for note in data_notes %}<p class="muted">{{ note }}</p>{% endfor %}
+</section>
+{% for review in reviews %}
+<article class="panel review">
+  <h2>{{ review.shop_name }}</h2>
+  <div class="review-head">{% if review.avatar_url_local %}<img class="avatar" src="{{ review.avatar_url_local }}" alt="{{ review.author }}">{% endif %}<div><h3>{% if review.profile.url %}<a href="{{ review.profile.url }}" target="_blank" rel="noopener">{{ review.author }}</a>{% else %}{{ review.author }}{% endif %}</h3><p>{{ review.stars or "未提供" }}★ · {{ review.time_text }}</p></div></div>
+  <p>字面 {{ "%.0f"|format(review.max_lexical * 100) }}% · 語意 {{ "%.0f"|format(review.max_semantic * 100) }}%</p>
+  <p class="body">{{ review.text }}</p>
+  {% if review.owner_reply %}<blockquote><strong>店家回覆</strong><br><span class="body">{{ review.owner_reply.text }}</span></blockquote>{% endif %}
+</article>
+{% endfor %}
+{% endblock %}
