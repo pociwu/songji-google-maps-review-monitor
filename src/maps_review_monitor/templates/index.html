@@ -1,15 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="intro"><h1>各店狀況</h1><p>評論監控、最新動態與媒體素材</p></section>
-<section class="shop-grid">
+<section class="intro">
+  <h1>各店狀況</h1>
+  <p>評論監控、最新動態與媒體素材</p>
+  <p class="muted">按住圖卡右上角的拖曳把手，即可調整這台裝置上的排列順序。</p>
+</section>
+<section class="shop-grid" id="shop-grid" aria-label="店家列表">
 {% for shop in shops %}
-  <a class="shop-card" href="/shops/{{ shop.shop_key }}">
-    <div class="row"><h2>{{ shop.name }}</h2><span class="badge {{ shop.last_result }}">{{ "監控中" if shop.enabled else "未啟用" }}</span></div>
-    <p>最近結果：{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</p>
-    <p>上次查詢：{{ shop.last_checked_at or "尚無紀錄" }}</p>
-    <p>最新評論：{{ shop.latest_review_at or "尚無評論" }}</p>
-    {% if shop.latest_asset %}<p class="muted">最新動態：{{ shop.latest_asset.title }}</p>{% endif %}
-  </a>
-{% else %}<p>尚未有已監控的店家資料。</p>{% endfor %}
+  <article class="shop-card" data-shop-key="{{ shop.shop_key }}">
+    <button class="drag-handle" type="button" aria-label="拖曳排序 {{ shop.name }}" title="拖曳排序">⠿</button>
+    <a class="shop-card-link" href="/shops/{{ shop.shop_key }}">
+      <div class="row">
+        <h2>{{ shop.name }}</h2>
+        <span class="badge {{ shop.last_result }}">{{ "監控中" if shop.enabled else "未啟用" }}</span>
+      </div>
+      <p>最近結果：{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</p>
+      <p>上次查詢：{{ shop.last_checked_at or "尚無紀錄" }}</p>
+      <p>最新評論：{{ shop.latest_review_at or "尚無評論" }}</p>
+      {% if shop.latest_asset %}<p class="muted">最新動態：{{ shop.latest_asset.title }}</p>{% endif %}
+    </a>
+  </article>
+{% else %}
+  <p>尚未有已監控的店家資料。</p>
+{% endfor %}
 </section>
 {% endblock %}

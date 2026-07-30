@@ -1,0 +1,77 @@
+(() => {
+  const grid = document.querySelector("#shop-grid");
+  if (!grid) return;
+
+  const storageKey = "songji.portal.shop-order.v1";
+  const cards = () => [...grid.querySelectorAll("[data-shop-key]")];
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    const byKey = new Map(cards().map((card) => [card.dataset.shopKey, card]));
+    saved.forEach((key) => {
+      const card = byKey.get(key);
+      if (card) grid.append(card);
+    });
+  } catch {
+    localStorage.removeItem(storageKey);
+  }
+
+  const saveOrder = () => {
+    localStorage.setItem(storageKey, JSON.stringify(cards().map((card) => card.dataset.shopKey)));
+  };
+
+  let draggedCard = null;
+  let activeHandle = null;
+
+  grid.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".drag-handle");
+    if (!handle) return;
+    draggedCard = handle.closest("[data-shop-key]");
+    activeHandle = handle;
+    handle.setPointerCapture(event.pointerId);
+    draggedCard.classList.add("is-dragging");
+    event.preventDefault();
+  });
+
+  grid.addEventListener("pointermove", (event) => {
+    if (!draggedCard) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-shop-key]");
+    if (!target || target === draggedCard || target.parentElement !== grid) return;
+
+    const rect = target.getBoundingClientRect();
+    const singleColumn = grid.clientWidth < rect.width * 1.5;
+    const before = singleColumn
+      ? event.clientY < rect.top + rect.height / 2
+      : event.clientX < rect.left + rect.width / 2;
+    grid.insertBefore(draggedCard, before ? target : target.nextSibling);
+  });
+
+  const finishDrag = () => {
+    if (!draggedCard) return;
+    draggedCard.classList.remove("is-dragging");
+    draggedCard = null;
+    activeHandle = null;
+    saveOrder();
+  };
+
+  grid.addEventListener("pointerup", finishDrag);
+  grid.addEventListener("pointercancel", finishDrag);
+
+  grid.addEventListener("keydown", (event) => {
+    const handle = event.target.closest(".drag-handle");
+    if (!handle || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    const card = handle.closest("[data-shop-key]");
+    const previous = card.previousElementSibling;
+    const next = card.nextElementSibling;
+    if (["ArrowUp", "ArrowLeft"].includes(event.key) && previous?.matches("[data-shop-key]")) {
+      grid.insertBefore(card, previous);
+    } else if (["ArrowDown", "ArrowRight"].includes(event.key) && next?.matches("[data-shop-key]")) {
+      grid.insertBefore(next, card);
+    } else {
+      return;
+    }
+    event.preventDefault();
+    saveOrder();
+    handle.focus();
+  });
+})();
