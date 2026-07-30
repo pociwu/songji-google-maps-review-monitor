@@ -52,12 +52,16 @@ enabled = true
     home = client.get("/")
     assert home.status_code == 200
     assert 'id="similar-review-toggle"' in home.text
+    assert 'id="suspected-review-toggle"' in home.text
     assert "顯示高度相似評論" in home.text
+    assert "顯示疑似協同評論" in home.text
     assert "hide-highly-similar" in home.text
-    assert "版本 0.2.1" in home.text
+    assert "hide-suspected" in home.text
+    assert "版本 0.2.2" in home.text
     css = client.get("/static/portal.css")
     assert css.status_code == 200
     assert ".hide-highly-similar .similar-only" in css.text
+    assert ".hide-suspected .suspected-only" in css.text
     response = client.get("/analysis")
     assert response.status_code == 200
     assert "全部店家分析" in response.text

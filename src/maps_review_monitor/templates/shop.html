@@ -5,10 +5,10 @@
 <section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl></section>
 <section class="panel">
   <h2>相似評論摘要</h2>
-  <p><span class="similar-only">高度相似 {{ shop.similar }} 則 · </span><strong class="text-danger">疑似協同 {{ shop.suspected }} 則</strong></p>
+  <p><span class="similar-only">高度相似 {{ shop.similar }} 則</span><span class="similar-only suspected-only"> · </span><strong class="text-danger suspected-only">疑似協同 {{ shop.suspected }} 則</strong></p>
   <p><a href="/analysis?scope=same">查看全部店家分析 →</a></p>
   {% for group in groups[:5] %}
-    <a class="group-row {{ 'similar-only' if group.label == 'highly_similar' }}" href="/analysis/groups/{{ group.group_id }}">
+    <a class="group-row {{ 'similar-only' if group.label == 'highly_similar' else 'suspected-only' }}" href="/analysis/groups/{{ group.group_id }}">
       {{ "疑似協同評論" if group.label == "suspected" else "內容高度相似" }}
       · {{ group.review_count }} 則 · 最高語意 {{ "%.0f"|format(group.max_semantic * 100) }}%
     </a>
@@ -21,15 +21,15 @@
 <nav class="tabs">
   <a class="{{ 'active' if view == 'all' }}" href="?view=all">全部</a>
   <a class="similar-only {{ 'active' if view == 'similar' }}" href="?view=similar">高度相似</a>
-  <a class="{{ 'active' if view == 'suspected' }}" href="?view=suspected">疑似協同</a>
+  <a class="suspected-only {{ 'active' if view == 'suspected' }}" href="?view=suspected">疑似協同</a>
 </nav>
 {% for review in reviews %}<article class="panel review">
   <div class="review-head">{% if review.avatar_url_local %}<img class="avatar" src="{{ review.avatar_url_local }}" alt="{{ review.author }}">{% endif %}<div><h3>{% if review.profile.url %}<a href="{{ review.profile.url }}" target="_blank" rel="noopener">{{ review.author }}</a>{% else %}{{ review.author }}{% endif %}</h3><p>{{ "★" * (review.stars|int) if review.stars else "未提供星等" }} · {{ review.time_text }}</p></div></div>
-  {% if review.analysis_label %}<p class="{{ 'similar-only' if review.analysis_label == 'highly_similar' }}"><span class="risk-label {{ review.analysis_label }}">{{ "疑似協同評論" if review.analysis_label == "suspected" else "內容高度相似" }}</span> 字面 {{ "%.0f"|format(review.max_lexical * 100) }}% · 語意 {{ "%.0f"|format(review.max_semantic * 100) }}%</p>{% endif %}
+  {% if review.analysis_label %}<p class="{{ 'similar-only' if review.analysis_label == 'highly_similar' else 'suspected-only' }}"><span class="risk-label {{ review.analysis_label }}">{{ "疑似協同評論" if review.analysis_label == "suspected" else "內容高度相似" }}</span> 字面 {{ "%.0f"|format(review.max_lexical * 100) }}% · 語意 {{ "%.0f"|format(review.max_semantic * 100) }}%</p>{% endif %}
   {% if review.edited %}<p class="muted">此評論曾編輯；目前統計使用最新內容。</p>{% endif %}
   <p class="body">{{ review.text }}</p>
   {% if review.owner_reply %}<blockquote><strong>店家回覆</strong><br><span class="body">{{ review.owner_reply.text }}</span></blockquote>{% endif %}
-  {% for group in review.analysis_groups %}<a class="{{ 'similar-only' if review.analysis_label == 'highly_similar' }}" href="/analysis/groups/{{ group.group_id }}">查看相似評論 →</a>{% endfor %}
+  {% for group in review.analysis_groups %}<a class="{{ 'similar-only' if review.analysis_label == 'highly_similar' else 'suspected-only' }}" href="/analysis/groups/{{ group.group_id }}">查看相似評論 →</a>{% endfor %}
   <div class="media-grid">{% for photo in review.photo_urls_local %}<img src="{{ photo }}" alt="{{ review.author }} 的評論照片">{% endfor %}</div>
 </article>{% else %}<p>此篩選條件下沒有評論。</p>{% endfor %}
 {% if page > 1 %}<a class="button" href="/shops/{{ shop.shop_key }}?view={{ view }}&page={{ page - 1 }}">較新的評論</a>{% endif %}{% if has_next %}<a class="button" href="/shops/{{ shop.shop_key }}?view={{ view }}&page={{ page + 1 }}">載入更多</a>{% endif %}

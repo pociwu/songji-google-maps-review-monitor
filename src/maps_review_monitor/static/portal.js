@@ -77,33 +77,42 @@
 })();
 
 (() => {
-  const toggle = document.querySelector("#similar-review-toggle");
-  const storageKey = "songji.portal.show-similar-reviews.v1";
+  const controls = [
+    {
+      toggle: document.querySelector("#similar-review-toggle"),
+      storageKey: "songji.portal.show-similar-reviews.v1",
+      hiddenClass: "hide-highly-similar",
+    },
+    {
+      toggle: document.querySelector("#suspected-review-toggle"),
+      storageKey: "songji.portal.show-suspected-reviews.v1",
+      hiddenClass: "hide-suspected",
+    },
+  ];
 
-  const apply = (visible) => {
-    document.documentElement.classList.toggle("hide-highly-similar", !visible);
-    if (toggle) toggle.checked = visible;
-  };
-
-  let visible = true;
-  try {
-    const saved = localStorage.getItem(storageKey);
-    visible = saved === null ? true : saved === "true";
-  } catch {
-    visible = true;
-  }
-  apply(visible);
-
-  if (toggle) {
-    toggle.addEventListener("change", () => {
-      apply(toggle.checked);
+  controls.forEach((control) => {
+    let visible = true;
+    try {
+      const saved = localStorage.getItem(control.storageKey);
+      visible = saved === null ? true : saved === "true";
+    } catch {
+      visible = true;
+    }
+    document.documentElement.classList.toggle(control.hiddenClass, !visible);
+    if (!control.toggle) return;
+    control.toggle.checked = visible;
+    control.toggle.addEventListener("change", () => {
+      document.documentElement.classList.toggle(
+        control.hiddenClass,
+        !control.toggle.checked
+      );
       try {
-        localStorage.setItem(storageKey, String(toggle.checked));
+        localStorage.setItem(control.storageKey, String(control.toggle.checked));
       } catch {
         // The control still works for this page when storage is unavailable.
       }
     });
-  }
+  });
 })();
 
 (() => {

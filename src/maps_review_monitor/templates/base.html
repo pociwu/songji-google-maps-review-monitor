@@ -9,6 +9,9 @@
       if (localStorage.getItem("songji.portal.show-similar-reviews.v1") === "false") {
         document.documentElement.classList.add("hide-highly-similar");
       }
+      if (localStorage.getItem("songji.portal.show-suspected-reviews.v1") === "false") {
+        document.documentElement.classList.add("hide-suspected");
+      }
     } catch {}
   </script>
   <link rel="stylesheet" href="{{ url_for('static', path='portal.css') }}">

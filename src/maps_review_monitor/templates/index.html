@@ -4,11 +4,18 @@
   <h1>各店狀況</h1>
   <p>評論監控、最新動態與媒體素材</p>
   <p class="muted">按住圖卡右上角的拖曳把手，即可調整這台裝置上的排列順序。</p>
-  <label class="visibility-toggle" for="similar-review-toggle">
-    <input id="similar-review-toggle" type="checkbox" role="switch" checked>
-    <span class="switch-track" aria-hidden="true"></span>
-    <span>顯示高度相似評論</span>
-  </label>
+  <div class="visibility-controls">
+    <label class="visibility-toggle" for="similar-review-toggle">
+      <input id="similar-review-toggle" type="checkbox" role="switch" checked>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span>顯示高度相似評論</span>
+    </label>
+    <label class="visibility-toggle" for="suspected-review-toggle">
+      <input id="suspected-review-toggle" type="checkbox" role="switch" checked>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span>顯示疑似協同評論</span>
+    </label>
+  </div>
 </section>
 <section class="shop-grid" id="shop-grid" aria-label="店家列表">
 {% for shop in shops %}
@@ -24,7 +31,7 @@
       <p>最新評論：{{ shop.latest_review_at or "尚無評論" }}</p>
       <div class="risk-counts">
         <span class="similar-only">高度相似 <strong>{{ shop.similar }}</strong></span>
-        <span class="danger">疑似協同 <strong>{{ shop.suspected }}</strong></span>
+        <span class="danger suspected-only">疑似協同 <strong>{{ shop.suspected }}</strong></span>
       </div>
       {% if shop.latest_asset %}<p class="muted">最新動態：{{ shop.latest_asset.title }}</p>{% endif %}
     </a>

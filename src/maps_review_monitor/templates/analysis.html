@@ -23,7 +23,7 @@
   <button type="submit">套用</button>
 </form>
 {% for group in groups %}
-<article class="panel {{ 'similar-only' if group.label == 'highly_similar' }}">
+<article class="panel {{ 'similar-only' if group.label == 'highly_similar' else 'suspected-only' }}">
   <div class="row"><h2>{{ "疑似協同評論" if group.label == "suspected" else "內容高度相似" }}</h2><span class="risk-label {{ group.label }}">{{ {"positive":"正向","negative":"負向","mixed":"混合"}[group.direction] }}</span></div>
   <p>{{ group.review_count }} 則評論 · {{ group.shop_count }} 家店 · 字面最高 {{ "%.0f"|format(group.max_lexical * 100) }}% · 語意最高 {{ "%.0f"|format(group.max_semantic * 100) }}%</p>
   {% if group.evidence %}<ul>{% for item in group.evidence %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
