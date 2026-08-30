@@ -399,6 +399,12 @@ class Database:
     def iter_reviews(self, shop_key: str | None = None) -> Iterator[dict[str, Any]]:
         sql = """SELECT r.snapshot_json,r.first_seen_at,r.updated_at,
                         r.back_calculated_at,r.estimated_posted_date,r.time_parse_status,
+                        (
+                          SELECT o.relative_unit FROM review_time_observations o
+                          WHERE o.shop_key=r.shop_key AND o.review_id=r.review_id
+                            AND o.relative_unit IS NOT NULL
+                          ORDER BY o.id ASC LIMIT 1
+                        ) AS time_relative_unit,
                         EXISTS(
                           SELECT 1 FROM review_versions rv
                           WHERE rv.shop_key=r.shop_key AND rv.review_id=r.review_id
@@ -416,6 +422,7 @@ class Database:
             item["back_calculated_at"] = row["back_calculated_at"]
             item["estimated_posted_date"] = row["estimated_posted_date"]
             item["time_parse_status"] = row["time_parse_status"]
+            item["time_relative_unit"] = row["time_relative_unit"]
             item["edited"] = bool(row["edited"])
             yield item
 

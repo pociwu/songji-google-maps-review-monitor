@@ -1,8 +1,12 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from maps_review_monitor.config import ShopConfig
+from maps_review_monitor.database import Database
+from maps_review_monitor.models import ProfileSummary, ReviewSnapshot
 from maps_review_monitor.portal import (
     build_same_name_groups,
     build_search_results,
@@ -63,8 +67,9 @@ enabled = true
     assert "顯示疑似協同評論" in home.text
     assert "hide-highly-similar" in home.text
     assert "hide-suspected" in home.text
-    assert "版本 0.5.0" in home.text
+    assert "版本 0.6.0" in home.text
     assert 'href="/reviewers"' in home.text
+    assert 'href="/review-times"' in home.text
     assert 'id="global-search-input"' in home.text
     css = client.get("/static/portal.css")
     assert css.status_code == 200
@@ -80,9 +85,62 @@ enabled = true
     assert name_search.status_code == 200
     assert 'id="reviewer-name-query"' in name_search.text
     assert "王小明" in name_search.text
+    time_analysis = client.get("/review-times")
+    assert time_analysis.status_code == 200
+    assert "評論發文時間分析" in time_analysis.text
+    assert "資料不足，尚無法判定規律" in time_analysis.text
+    assert "<figure" in time_analysis.text
+    assert "發文時間明細" in time_analysis.text
+    assert client.get("/review-times?window=bad").status_code == 404
+    assert client.get("/review-times?shop=missing").status_code == 404
     search = client.get("/search?q=測試")
     assert search.status_code == 200
     assert "搜尋" in search.text
+
+
+def test_review_time_page_renders_known_review_details(tmp_path: Path):
+    shop_url = "https://www.google.com/maps/place/example"
+    shop = ShopConfig(name="測試店家", url=shop_url)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f'''data_dir = "data"
+analysis_enabled = false
+[[shops]]
+name = "{shop.name}"
+url = "{shop.url}"
+enabled = true
+''',
+        encoding="utf-8",
+    )
+    database_path = tmp_path / "data" / "reviews.sqlite3"
+    database = Database(database_path, "Asia/Taipei")
+    database.sync_shop(shop.key, shop.name, shop.url)
+    snapshot = ReviewSnapshot(
+        review_id="known-review",
+        shop_key=shop.key,
+        shop_name=shop.name,
+        shop_url=shop.url,
+        author="時間測試評論者",
+        stars=5,
+        time_text="1 小時前",
+        text="時間分析頁面測試",
+        profile=ProfileSummary(),
+    )
+    database.upsert_review(
+        snapshot,
+        notify=False,
+        observed_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    )
+    database.close()
+
+    response = TestClient(create_app(str(config))).get(
+        f"/review-times?shop={shop.key}&window=30d"
+    )
+
+    assert response.status_code == 200
+    assert "時間測試評論者" in response.text
+    assert "有時分回推" in response.text
+    assert "Google 相對時間回推" in response.text
 
 
 def test_same_name_groups_are_cross_shop_and_do_not_assume_identity():

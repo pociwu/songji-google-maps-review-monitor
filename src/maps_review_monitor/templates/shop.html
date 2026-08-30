@@ -2,7 +2,7 @@
 {% block title %}{{ shop.name }}｜Songji 店家狀況{% endblock %}
 {% block content %}
 <p><a class="back" href="/">← 所有店家</a></p><h1>{{ shop.name }}</h1>
-<section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl></section>
+<section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl><p><a href="/review-times?shop={{ shop.shop_key }}">查看本店發文時間分析 →</a></p></section>
 <section class="panel">
   <h2>相似評論摘要</h2>
   <p><span class="similar-only">高度相似 {{ shop.similar }} 則</span><span class="similar-only suspected-only"> · </span><strong class="text-danger suspected-only">疑似協同 {{ shop.suspected }} 則</strong></p>
@@ -25,6 +25,7 @@
 </nav>
 {% for review in reviews %}<article class="panel review">
   <div class="review-head">{% if review.avatar_url_local %}<img class="avatar" src="{{ review.avatar_url_local }}" alt="{{ review.author }}">{% endif %}<div><h3>{% if review.profile.url %}<a href="{{ review.profile.url }}" target="_blank" rel="noopener">{{ review.author }}</a>{% else %}{{ review.author }}{% endif %}</h3><p>{{ "★" * (review.stars|int) if review.stars else "未提供星等" }} · {{ review.time_text }}</p></div></div>
+  {% if review.posted_at_display %}<p class="muted">{{ "推定發文時間" if review.posted_at_precision == "time" else "推定發文日期" }}：{{ review.posted_at_display }}（{{ review.posted_at_source }}）</p>{% else %}<p class="muted">推定發文時間：資料不足</p>{% endif %}
   {% if review.analysis_label %}<p class="{{ 'similar-only' if review.analysis_label == 'highly_similar' else 'suspected-only' }}"><span class="risk-label {{ review.analysis_label }}">{{ "疑似協同評論" if review.analysis_label == "suspected" else "內容高度相似" }}</span> 字面 {{ "%.0f"|format(review.max_lexical * 100) }}% · 語意 {{ "%.0f"|format(review.max_semantic * 100) }}%</p>{% endif %}
   {% if review.edited %}<p class="muted">此評論曾編輯；目前統計使用最新內容。</p>{% endif %}
   <p class="body">{{ review.text }}</p>

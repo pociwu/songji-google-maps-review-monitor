@@ -18,11 +18,13 @@ from fastapi.templating import Jinja2Templates
 
 from .config import load_settings
 from .database import Database
+from .review_time_analysis import build_review_time_analysis, resolve_review_posted_time
 from . import __version__
 
 
 PACKAGE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
+TIME_WINDOWS = {"30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
 
 def load_content_assets(path: Path) -> list[dict[str, Any]]:
@@ -96,7 +98,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         assets = portal_assets()
         db = Database(settings.database_path, settings.timezone)
         try:
-            reviews = [_decorate_review(item) for item in db.iter_reviews()]
+            reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews()]
         finally:
             db.close()
         results = build_search_results(query, shops, reviews, assets)
@@ -119,7 +121,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             raise HTTPException(404, "找不到店家")
         db = Database(settings.database_path, settings.timezone)
         try:
-            reviews = [_decorate_review(item) for item in db.iter_reviews(shop_key)]
+            reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews(shop_key)]
             review_analysis = db.review_analysis(shop_key)
             groups = db.analysis_groups(shop_key=shop_key)
             group_links: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
@@ -216,7 +218,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             "analysis-group.html",
             {
                 "group": group,
-                "reviews": [_decorate_review(item) for item in reviews],
+                "reviews": [_decorate_review(item, settings.timezone) for item in reviews],
                 "data_notes": data_notes,
             },
         )
@@ -226,7 +228,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         query = q.strip()[:80]
         db = Database(settings.database_path, settings.timezone)
         try:
-            reviews = [_decorate_review(item) for item in db.iter_reviews()]
+            reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews()]
         finally:
             db.close()
         groups = (
@@ -238,6 +240,80 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             request,
             "reviewers.html",
             {"groups": groups, "query": query},
+        )
+
+    @app.get("/review-times", response_class=HTMLResponse)
+    def review_times_page(
+        request: Request, shop: str = "all", window: str = "90d"
+    ) -> HTMLResponse:
+        if window not in TIME_WINDOWS:
+            raise HTTPException(404)
+        shops = shop_statuses()
+        valid_shop_keys = {item["shop_key"] for item in shops}
+        if shop != "all" and shop not in valid_shop_keys:
+            raise HTTPException(404, "找不到店家")
+        db = Database(settings.database_path, settings.timezone)
+        try:
+            all_reviews = list(db.iter_reviews())
+        finally:
+            db.close()
+        selected_reviews = (
+            all_reviews
+            if shop == "all"
+            else [item for item in all_reviews if item.get("shop_key") == shop]
+        )
+        days = TIME_WINDOWS[window]
+        analysis = build_review_time_analysis(selected_reviews, settings.timezone, days)
+        shop_summaries = []
+        if shop == "all":
+            reviews_by_shop: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for review in all_reviews:
+                reviews_by_shop[str(review.get("shop_key") or "")].append(review)
+            for item in shops:
+                result = build_review_time_analysis(
+                    reviews_by_shop.get(item["shop_key"], []), settings.timezone, days
+                )
+                shop_summaries.append(
+                    {
+                        "shop_key": item["shop_key"],
+                        "name": item["name"],
+                        "period_count": result["period_count"],
+                        "pattern_eligible_count": result["pattern_eligible_count"],
+                        "verdict": result["verdict"],
+                        "finding_count": len(result["findings"]),
+                    }
+                )
+        status_rank = {"possible": 0, "none": 1, "insufficient": 2}
+        shop_summaries.sort(
+            key=lambda item: (
+                status_rank[item["verdict"]["status"]],
+                -item["finding_count"],
+                -item["period_count"],
+                item["name"],
+            )
+        )
+        selected_shop_name = "全部店家"
+        if shop != "all":
+            selected_shop_name = next(
+                item["name"] for item in shops if item["shop_key"] == shop
+            )
+        return TEMPLATES.TemplateResponse(
+            request,
+            "review-times.html",
+            {
+                "analysis": analysis,
+                "shops": shops,
+                "shop_summaries": shop_summaries,
+                "selected_shop": shop,
+                "selected_shop_name": selected_shop_name,
+                "selected_window": window,
+                "window_options": [
+                    {"value": "30d", "label": "近 30 天"},
+                    {"value": "90d", "label": "近 90 天"},
+                    {"value": "180d", "label": "近 180 天"},
+                    {"value": "365d", "label": "近 365 天"},
+                ],
+            },
         )
 
     @app.get("/api/analysis-status")
@@ -273,10 +349,16 @@ def _decorate_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return assets
 
 
-def _decorate_review(review: dict[str, Any]) -> dict[str, Any]:
+def _decorate_review(
+    review: dict[str, Any], timezone_name: str = "Asia/Taipei"
+) -> dict[str, Any]:
     profile = review.get("profile") or {}
     review["photo_urls_local"] = [_media_url(path) for path in review.get("photo_paths", [])]
     review["avatar_url_local"] = _media_url(profile["avatar_path"]) if profile.get("avatar_path") else ""
+    posted = resolve_review_posted_time(review, timezone_name)
+    review["posted_at_display"] = posted["display"] if posted else ""
+    review["posted_at_precision"] = posted["precision"] if posted else "unknown"
+    review["posted_at_source"] = posted["source_label"] if posted else ""
     return review
 
 

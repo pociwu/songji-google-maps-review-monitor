@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}評論發文時間分析｜Songji{% endblock %}
+{% block content %}
+<h1>評論發文時間分析</h1>
+<p class="muted">依 Google Maps 相對時間文字回推或推估；首次偵測時間不會當作發文時間。</p>
+
+<form class="panel filters time-filters" action="/review-times" method="get">
+  <label>店家
+    <select name="shop">
+      <option value="all" {% if selected_shop == 'all' %}selected{% endif %}>全部店家</option>
+      {% for shop in shops %}<option value="{{ shop.shop_key }}" {% if selected_shop == shop.shop_key %}selected{% endif %}>{{ shop.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>觀察期間
+    <select name="window">
+      {% for option in window_options %}<option value="{{ option.value }}" {% if selected_window == option.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">套用</button>
+</form>
+
+<section class="time-summary-grid" aria-label="時間資料摘要">
+  <article class="panel metric-card"><strong>{{ analysis.period_count }}</strong><span>期間內可用日期</span></article>
+  <article class="panel metric-card"><strong>{{ analysis.exact_time_count }}</strong><span>有回推時分</span></article>
+  <article class="panel metric-card"><strong>{{ analysis.time_slot_count }}</strong><span>可進時段圖</span></article>
+  <article class="panel metric-card"><strong>{{ analysis.unknown_count }}</strong><span>尚無法推定</span></article>
+</section>
+
+<section class="panel pattern-verdict {{ analysis.verdict.status }}">
+  <p class="muted">{{ selected_shop_name }} · {{ analysis.period_start }} 至 {{ analysis.period_end }}</p>
+  <h2>{{ analysis.verdict.title }}</h2>
+  <p>{{ analysis.verdict.detail }}</p>
+  {% if analysis.findings %}
+  <ul class="finding-list">
+    {% for finding in analysis.findings %}<li><strong>{{ finding.title }}</strong><br>{{ finding.evidence }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <p class="muted">時間規律或集中只是一項人工檢視線索，不會單獨將評論判定為疑似協同。</p>
+</section>
+
+{% if selected_shop == 'all' %}
+<section class="panel">
+  <h2>各店規律摘要</h2>
+  <p class="muted">全部店家合併圖會受到店家數量影響；判讀時請優先查看單店結果。</p>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th>店家</th><th>期間內日期</th><th>判讀可用</th><th>結果</th><th></th></tr></thead>
+    <tbody>{% for item in shop_summaries %}<tr>
+      <td>{{ item.name }}</td><td>{{ item.period_count }}</td><td>{{ item.pattern_eligible_count }}</td>
+      <td><span class="verdict-badge {{ item.verdict.status }}">{{ item.verdict.title }}</span></td>
+      <td><a href="/review-times?shop={{ item.shop_key }}&window={{ selected_window }}">查看</a></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+
+<figure class="panel time-chart-panel">
+  <figcaption><h2>{{ analysis.trend_title }}</h2><p class="muted">共 {{ analysis.period_count }} 筆；綠色為時段可用、藍色為「天前」日期回推、灰色為週／月／年粗略日期。</p></figcaption>
+  {% if analysis.period_count %}
+  <div class="vertical-chart-scroll">
+    <div class="vertical-chart" role="img" aria-label="{{ analysis.trend_title }}，{{ analysis.period_start }} 至 {{ analysis.period_end }}">
+      {% for bar in analysis.trend %}
+      <div class="vertical-bar" aria-label="{{ bar.period_label }}：{{ bar.count }} 筆" title="{{ bar.period_label }}：{{ bar.count }} 筆（時段 {{ bar.precise_count }}、日期 {{ bar.date_count }}、粗略 {{ bar.coarse_count }}）">
+        <span class="bar-count">{% if bar.count %}{{ bar.count }}{% endif %}</span>
+        <span class="bar-stack" style="--bar-height:{{ bar.height_percent }}%">
+          <span class="bar-segment coarse" style="--segment-height:{{ bar.coarse_percent }}%"></span>
+          <span class="bar-segment date" style="--segment-height:{{ bar.date_percent }}%"></span>
+          <span class="bar-segment precise" style="--segment-height:{{ bar.precise_percent }}%"></span>
+        </span>
+        <span class="bar-label">{% if bar.show_label %}{{ bar.label }}{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <details><summary>查看趨勢圖數據</summary><div class="table-scroll"><table class="data-table">
+    <thead><tr><th>期間</th><th>總數</th><th>時段可用</th><th>日期回推</th><th>粗略日期</th></tr></thead>
+    <tbody>{% for bar in analysis.trend %}<tr><td>{{ bar.period_label }}</td><td>{{ bar.count }}</td><td>{{ bar.precise_count }}</td><td>{{ bar.date_count }}</td><td>{{ bar.coarse_count }}</td></tr>{% endfor %}</tbody>
+  </table></div></details>
+  {% else %}<p>此期間沒有可推定日期的評論。</p>{% endif %}
+</figure>
+
+<div class="time-chart-grid">
+  <figure class="panel time-chart-panel">
+    <figcaption><h2>星期分布</h2><p class="muted">僅納入回推區間未跨日期邊界的資料，共 {{ analysis.weekday_eligible_count }} 筆；「N 天前」與週／月／年推估不會放入此圖。</p></figcaption>
+    {% if analysis.weekday_eligible_count %}<div class="distribution-chart" role="img" aria-label="星期分布">
+      {% for item in analysis.weekdays %}<div class="distribution-row"><span>{{ item.label }}</span><span class="distribution-track"><span class="distribution-fill" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }}（{{ item.percent }}%）</strong></div>{% endfor %}
+    </div>{% else %}<p>目前沒有日期邊界明確的星期資料。</p>{% endif %}
+  </figure>
+  <figure class="panel time-chart-panel">
+    <figcaption><h2>時段分布</h2><p class="muted">僅納入回推區間完整落在同一個三小時區段的資料，共 {{ analysis.time_slot_count }} 筆。</p></figcaption>
+    {% if analysis.time_slot_count %}<div class="distribution-chart" role="img" aria-label="三小時區段分布">
+      {% for item in analysis.time_slots %}<div class="distribution-row"><span>{{ item.label }}</span><span class="distribution-track"><span class="distribution-fill time" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }}（{{ item.percent }}%）</strong></div>{% endfor %}
+    </div>{% else %}<p>目前沒有精度足夠的時段資料；「N 天前」不會放入此圖。</p>{% endif %}
+  </figure>
+</div>
+
+<section class="panel">
+  <h2>資料可信度</h2>
+  <p>全部 {{ analysis.total_count }} 則評論中，可推定日期 {{ analysis.known_count }} 則（{{ analysis.coverage_percent }}%），無法推定 {{ analysis.unknown_count }} 則。</p>
+  <ul>
+    <li>有時分回推：{{ analysis.exact_time_count }} 則；其中 {{ analysis.time_slot_count }} 則未跨三小時區段邊界，可進時段圖。</li>
+    <li>日期級推估：{{ analysis.date_estimate_count }} 則；由「N 天前」回推，不分析時段。</li>
+    <li>粗略日期：{{ analysis.coarse_date_count }} 則；由週、月或年相對文字變化推估，只供趨勢參考。</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>發文時間明細</h2>
+  {% if analysis.records %}<details><summary>查看 {{ analysis.records|length }} 筆推定時間{% if analysis.records_truncated %}（最多顯示 200 筆）{% endif %}</summary>
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>推定發文時間</th><th>精度</th><th>店家</th><th>評論者</th><th>星等</th><th>Google 顯示</th></tr></thead>
+      <tbody>{% for record in analysis.records %}<tr>
+        <td>{{ record.display }}</td><td><span class="precision-badge {{ record.precision }}">{{ record.precision_label }}</span><br><span class="muted">{{ record.source_label }}</span></td>
+        <td><a href="/shops/{{ record.shop_key }}">{{ record.shop_name }}</a></td><td>{{ record.author }}</td><td>{{ record.stars or '未提供' }}</td><td>{{ record.time_text or '未提供' }}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </details>{% else %}<p>此期間沒有可顯示的推定發文時間。</p>{% endif %}
+</section>
+{% endblock %}

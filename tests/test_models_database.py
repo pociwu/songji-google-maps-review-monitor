@@ -88,6 +88,8 @@ def test_database_tracks_back_calculation_and_long_transition(tmp_path: Path):
     ).fetchone()
     assert row["back_calculated_at"] == "2026-07-19T14:23:35+08:00"
     assert row["time_parse_status"] == "short"
+    stored = next(db.iter_reviews("s1"))
+    assert stored["time_relative_unit"] == "minutes"
 
     older = sample()
     older.review_id = "r2"

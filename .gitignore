@@ -1,6 +1,7 @@
 .env
 config.toml
 .pytest_cache/
+.pytest-tmp/
 .test-tmp/
 __pycache__/
 *.py[cod]
