@@ -14,6 +14,20 @@ TIME_SLOT_LABELS = (
     "00–02", "03–05", "06–08", "09–11",
     "12–14", "15–17", "18–20", "21–23",
 )
+TWO_HOUR_SLOT_LABELS = (
+    "00–01", "02–03", "04–05", "06–07", "08–09", "10–11",
+    "12–13", "14–15", "16–17", "18–19", "20–21", "22–23",
+)
+
+
+def _certain_time_slot(
+    local: datetime, earliest: datetime | None, hours_per_slot: int
+) -> int | None:
+    if earliest is None or earliest.date() != local.date():
+        return None
+    earliest_slot = earliest.hour // hours_per_slot
+    latest_slot = local.hour // hours_per_slot
+    return latest_slot if earliest_slot == latest_slot else None
 
 
 def resolve_review_posted_time(
@@ -41,11 +55,8 @@ def resolve_review_posted_time(
             }.get(relative_unit)
             earliest = local - uncertainty if uncertainty else None
             date_certain = bool(earliest and earliest.date() == local.date())
-            time_slot = (
-                local.hour // 3
-                if date_certain and earliest and earliest.hour // 3 == local.hour // 3
-                else None
-            )
+            time_slot = _certain_time_slot(local, earliest, 3)
+            two_hour_slot = _certain_time_slot(local, earliest, 2)
             return {
                 "date": local.date(),
                 "datetime": local if precise else None,
@@ -53,6 +64,7 @@ def resolve_review_posted_time(
                 "precision": precision,
                 "date_certain": date_certain,
                 "time_slot": time_slot,
+                "two_hour_slot": two_hour_slot,
                 "display": local.strftime("%Y-%m-%d %H:%M") if precise else local.strftime("%Y-%m-%d"),
                 "precision_label": (
                     "有時分回推" if precise else "日期級推估" if precision == "date" else "粗略日期"
@@ -79,6 +91,7 @@ def resolve_review_posted_time(
             "precision": "coarse",
             "date_certain": False,
             "time_slot": None,
+            "two_hour_slot": None,
             "display": posted_date.isoformat(),
             "precision_label": "粗略日期",
             "source_label": "依 Google 相對時間變化推估",
@@ -125,6 +138,9 @@ def build_review_time_analysis(
     coarse_records = [item for item in period_records if item["precision"] == "coarse"]
     weekday_records = [item for item in exact_records if item["date_certain"]]
     time_slot_records = [item for item in exact_records if item["time_slot"] is not None]
+    weekday_time_records = [
+        item for item in exact_records if item["two_hour_slot"] is not None
+    ]
 
     trend, trend_granularity = _trend_buckets(period_records, start_date, end_date, days)
     weekdays = _distribution(
@@ -137,6 +153,7 @@ def build_review_time_analysis(
         Counter(item["time_slot"] for item in time_slot_records),
         len(time_slot_records),
     )
+    weekday_time_heatmap = _weekday_time_heatmap(weekday_time_records)
     interval_records = weekday_records + date_records
     burst_records = weekday_records
     findings = _detect_patterns(
@@ -186,6 +203,7 @@ def build_review_time_analysis(
         "exact_time_count": len(exact_records),
         "weekday_eligible_count": len(weekday_records),
         "time_slot_count": len(time_slot_records),
+        "weekday_time_count": len(weekday_time_records),
         "date_estimate_count": len(date_records),
         "coarse_date_count": len(coarse_records),
         "pattern_eligible_count": len(interval_records),
@@ -194,6 +212,7 @@ def build_review_time_analysis(
         "trend_title": "每日評論發文量" if trend_granularity == "day" else "每週評論發文量",
         "weekdays": weekdays,
         "time_slots": time_slots,
+        "weekday_time_heatmap": weekday_time_heatmap,
         "findings": findings,
         "verdict": verdict,
         "records": period_records[:200],
@@ -293,6 +312,44 @@ def _distribution(
         }
         for index, label in enumerate(labels)
     ]
+
+
+def _weekday_time_heatmap(records: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = Counter(
+        (item["two_hour_slot"], item["date"].weekday()) for item in records
+    )
+    maximum = max(counts.values(), default=0)
+    rows = []
+    for slot_index, slot_label in enumerate(TWO_HOUR_SLOT_LABELS):
+        cells = []
+        for weekday_index, weekday_label in enumerate(WEEKDAY_LABELS):
+            count = counts[(slot_index, weekday_index)]
+            level = (
+                max(1, (count * 5 + maximum - 1) // maximum)
+                if count and maximum
+                else 0
+            )
+            cells.append(
+                {
+                    "weekday_index": weekday_index,
+                    "weekday_label": weekday_label,
+                    "count": count,
+                    "level": level,
+                }
+            )
+        rows.append(
+            {
+                "slot_index": slot_index,
+                "slot_label": slot_label,
+                "cells": cells,
+            }
+        )
+    return {
+        "eligible_count": len(records),
+        "max_count": maximum,
+        "weekday_labels": WEEKDAY_LABELS,
+        "rows": rows,
+    }
 
 
 def _detect_patterns(

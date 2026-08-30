@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -67,7 +68,7 @@ enabled = true
     assert "顯示疑似協同評論" in home.text
     assert "hide-highly-similar" in home.text
     assert "hide-suspected" in home.text
-    assert "版本 0.6.0" in home.text
+    assert "版本 0.6.1" in home.text
     assert 'href="/reviewers"' in home.text
     assert 'href="/review-times"' in home.text
     assert 'id="global-search-input"' in home.text
@@ -75,6 +76,7 @@ enabled = true
     assert css.status_code == 200
     assert ".hide-highly-similar .similar-only" in css.text
     assert ".hide-suspected .suspected-only" in css.text
+    assert ".time-heatmap" in css.text
     response = client.get("/analysis")
     assert response.status_code == 200
     assert "全部店家分析" in response.text
@@ -89,6 +91,11 @@ enabled = true
     assert time_analysis.status_code == 200
     assert "評論發文時間分析" in time_analysis.text
     assert "資料不足，尚無法判定規律" in time_analysis.text
+    assert "星期 × 2 小時發文熱度圖" in time_analysis.text
+    assert "時段 ＼ 星期" in time_analysis.text
+    assert "週一" in time_analysis.text and "週日" in time_analysis.text
+    assert "00–01" in time_analysis.text and "22–23" in time_analysis.text
+    assert "heat-cell heat-level-0" in time_analysis.text
     assert "<figure" in time_analysis.text
     assert "發文時間明細" in time_analysis.text
     assert client.get("/review-times?window=bad").status_code == 404
@@ -126,10 +133,14 @@ enabled = true
         text="時間分析頁面測試",
         profile=ProfileSummary(),
     )
+    local_timezone = ZoneInfo("Asia/Taipei")
+    observed_local = datetime.combine(
+        datetime.now(local_timezone).date(), time(12, 30), tzinfo=local_timezone
+    )
     database.upsert_review(
         snapshot,
         notify=False,
-        observed_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        observed_at=observed_local.astimezone(timezone.utc).isoformat(),
     )
     database.close()
 
@@ -141,6 +152,10 @@ enabled = true
     assert "時間測試評論者" in response.text
     assert "有時分回推" in response.text
     assert "Google 相對時間回推" in response.text
+    weekday_label = ("週一", "週二", "週三", "週四", "週五", "週六", "週日")[
+        observed_local.weekday()
+    ]
+    assert f'aria-label="{weekday_label} 10–11：1 筆"' in response.text
 
 
 def test_same_name_groups_are_cross_shop_and_do_not_assume_identity():

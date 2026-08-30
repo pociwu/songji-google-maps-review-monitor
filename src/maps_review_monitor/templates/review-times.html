@@ -22,7 +22,7 @@
 <section class="time-summary-grid" aria-label="時間資料摘要">
   <article class="panel metric-card"><strong>{{ analysis.period_count }}</strong><span>期間內可用日期</span></article>
   <article class="panel metric-card"><strong>{{ analysis.exact_time_count }}</strong><span>有回推時分</span></article>
-  <article class="panel metric-card"><strong>{{ analysis.time_slot_count }}</strong><span>可進時段圖</span></article>
+  <article class="panel metric-card"><strong>{{ analysis.weekday_time_count }}</strong><span>可進星期時段圖</span></article>
   <article class="panel metric-card"><strong>{{ analysis.unknown_count }}</strong><span>尚無法推定</span></article>
 </section>
 
@@ -78,6 +78,28 @@
   {% else %}<p>此期間沒有可推定日期的評論。</p>{% endif %}
 </figure>
 
+<figure class="panel time-chart-panel">
+  <figcaption>
+    <h2>星期 × 2 小時發文熱度圖</h2>
+    <p class="muted">X 軸為星期，Y 軸每 2 小時一個時段；僅納入回推區間未跨日期及兩小時邊界的資料，共 {{ analysis.weekday_time_count }} 筆。</p>
+  </figcaption>
+  {% if not analysis.weekday_time_count %}<p>目前沒有精度足夠的星期時段資料；「N 天前」與週／月／年推估不會放入此圖。</p>{% endif %}
+  <div class="heatmap-scroll" tabindex="0" role="region" aria-label="星期與兩小時發文時段熱度圖，可水平捲動">
+    <table class="time-heatmap">
+      <caption class="sr-only">X 軸為星期，Y 軸為兩小時時段，每格顯示評論篇數。</caption>
+      <thead><tr><th class="heatmap-axis-corner" scope="col">時段 ＼ 星期</th>{% for weekday in analysis.weekday_time_heatmap.weekday_labels %}<th scope="col">{{ weekday }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in analysis.weekday_time_heatmap.rows %}<tr>
+        <th scope="row">{{ row.slot_label }}</th>
+        {% for cell in row.cells %}<td class="heat-cell heat-level-{{ cell.level }}" aria-label="{{ cell.weekday_label }} {{ row.slot_label }}：{{ cell.count }} 筆" title="{{ cell.weekday_label }} {{ row.slot_label }}：{{ cell.count }} 筆">{{ cell.count }}</td>{% endfor %}
+      </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="heatmap-legend" aria-label="顏色由較少至較多">
+    <span>較少</span><i class="heat-level-0" aria-hidden="true"></i><i class="heat-level-1" aria-hidden="true"></i><i class="heat-level-2" aria-hidden="true"></i><i class="heat-level-3" aria-hidden="true"></i><i class="heat-level-4" aria-hidden="true"></i><i class="heat-level-5" aria-hidden="true"></i><span>較多</span>
+  </div>
+  <p class="muted">顏色深淺只代表該格篇數，不會單獨判定為時間規律或疑似協同。</p>
+</figure>
+
 <div class="time-chart-grid">
   <figure class="panel time-chart-panel">
     <figcaption><h2>星期分布</h2><p class="muted">僅納入回推區間未跨日期邊界的資料，共 {{ analysis.weekday_eligible_count }} 筆；「N 天前」與週／月／年推估不會放入此圖。</p></figcaption>
@@ -97,7 +119,9 @@
   <h2>資料可信度</h2>
   <p>全部 {{ analysis.total_count }} 則評論中，可推定日期 {{ analysis.known_count }} 則（{{ analysis.coverage_percent }}%），無法推定 {{ analysis.unknown_count }} 則。</p>
   <ul>
-    <li>有時分回推：{{ analysis.exact_time_count }} 則；其中 {{ analysis.time_slot_count }} 則未跨三小時區段邊界，可進時段圖。</li>
+    <li>有時分回推：{{ analysis.exact_time_count }} 則。</li>
+    <li>星期 × 2 小時熱度圖可用：{{ analysis.weekday_time_count }} 則；回推區間未跨日期及兩小時區段邊界。</li>
+    <li>三小時時段分布與規律判讀可用：{{ analysis.time_slot_count }} 則；沿用既有保守判定門檻。</li>
     <li>日期級推估：{{ analysis.date_estimate_count }} 則；由「N 天前」回推，不分析時段。</li>
     <li>粗略日期：{{ analysis.coarse_date_count }} 則；由週、月或年相對文字變化推估，只供趨勢參考。</li>
   </ul>

@@ -36,6 +36,7 @@ def test_resolver_uses_taipei_timezone_and_rejects_boundary_for_hour_chart():
     assert resolved["precision"] == "time"
     assert resolved["date_certain"] is False
     assert resolved["time_slot"] is None
+    assert resolved["two_hour_slot"] is None
     assert resolved["precision_label"] == "有時分回推"
 
 
@@ -52,9 +53,15 @@ def test_days_and_long_estimates_never_enter_hour_buckets():
     assert result["period_count"] == 2
     assert result["exact_time_count"] == 0
     assert result["time_slot_count"] == 0
+    assert result["weekday_time_count"] == 0
     assert result["date_estimate_count"] == 1
     assert result["coarse_date_count"] == 1
     assert sum(slot["count"] for slot in result["time_slots"]) == 0
+    assert sum(
+        cell["count"]
+        for row in result["weekday_time_heatmap"]["rows"]
+        for cell in row["cells"]
+    ) == 0
 
 
 def test_first_seen_time_is_never_used_as_posted_time():
@@ -68,6 +75,11 @@ def test_first_seen_time_is_never_used_as_posted_time():
     assert result["known_count"] == 0
     assert result["unknown_count"] == 1
     assert result["period_count"] == 0
+    assert len(result["weekday_time_heatmap"]["rows"]) == 12
+    assert all(
+        len(row["cells"]) == 7
+        for row in result["weekday_time_heatmap"]["rows"]
+    )
 
 
 def test_regular_seven_day_sequence_is_reported_with_evidence():
@@ -136,6 +148,64 @@ def test_trend_fills_empty_days_and_deduplicates_review_ids():
     assert result["total_count"] == 1
     assert len(result["trend"]) == 30
     assert sum(item["count"] for item in result["trend"]) == 1
+
+
+def test_weekday_two_hour_heatmap_has_fixed_axes_and_counts():
+    monday = review("monday-1", "2026-08-24T10:30:00+08:00", "minutes")
+    same_id_other_shop = dict(monday)
+    same_id_other_shop["shop_key"] = "shop-b"
+    same_id_other_shop["shop_name"] = "乙店"
+    items = [
+        monday,
+        dict(monday),
+        same_id_other_shop,
+        review("monday-2", "2026-08-24T10:45:00+08:00", "seconds"),
+        review("tuesday", "2026-08-25T10:30:00+08:00", "minutes"),
+        review("sunday", "2026-08-30T22:30:00+08:00", "minutes"),
+    ]
+
+    result = build_review_time_analysis(
+        items, "Asia/Taipei", 30, reference_date=date(2026, 8, 30)
+    )
+    heatmap = result["weekday_time_heatmap"]
+
+    assert result["weekday_time_count"] == 5
+    assert heatmap["weekday_labels"] == (
+        "週一", "週二", "週三", "週四", "週五", "週六", "週日"
+    )
+    assert [row["slot_label"] for row in heatmap["rows"]] == [
+        "00–01", "02–03", "04–05", "06–07", "08–09", "10–11",
+        "12–13", "14–15", "16–17", "18–19", "20–21", "22–23",
+    ]
+    assert all(len(row["cells"]) == 7 for row in heatmap["rows"])
+    assert heatmap["rows"][5]["cells"][0]["count"] == 3
+    assert heatmap["rows"][5]["cells"][1]["count"] == 1
+    assert heatmap["rows"][11]["cells"][6]["count"] == 1
+    assert heatmap["rows"][5]["cells"][0]["level"] == 5
+    assert sum(
+        cell["count"] for row in heatmap["rows"] for cell in row["cells"]
+    ) == heatmap["eligible_count"] == 5
+
+
+def test_two_hour_heatmap_excludes_uncertainty_crossing_slot_boundary():
+    crossing = review("crossing", "2026-08-24T10:30:00+08:00", "hours")
+    contained = review("contained", "2026-08-24T11:30:00+08:00", "hours")
+
+    crossing_time = resolve_review_posted_time(crossing, "Asia/Taipei")
+    contained_time = resolve_review_posted_time(contained, "Asia/Taipei")
+    result = build_review_time_analysis(
+        [crossing, contained],
+        "Asia/Taipei",
+        30,
+        reference_date=date(2026, 8, 30),
+    )
+
+    assert crossing_time is not None and crossing_time["time_slot"] == 3
+    assert crossing_time["two_hour_slot"] is None
+    assert contained_time is not None and contained_time["two_hour_slot"] == 5
+    assert result["time_slot_count"] == 2
+    assert result["weekday_time_count"] == 1
+    assert result["weekday_time_heatmap"]["rows"][5]["cells"][0]["count"] == 1
 
 
 def test_days_data_is_excluded_from_weekday_chart_and_burst_detection():
