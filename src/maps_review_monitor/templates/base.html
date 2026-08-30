@@ -24,7 +24,7 @@
       <input id="global-search-input" name="q" value="{{ request.query_params.get('q', '') }}" maxlength="100" placeholder="搜尋店家、評論或貼文">
       <button type="submit">搜尋</button>
     </form>
-    <span class="nav-links"><a href="/analysis">全部店家分析</a><a href="/reviewers">跨店同名</a></span>
+    <span class="nav-links"><a href="/analysis">全部店家分析</a><a href="/reviewers">名稱搜尋</a></span>
   </nav></header>
   <main>{% block content %}{% endblock %}</main>
   <aside class="analysis-progress" id="analysis-progress" hidden aria-live="polite">

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 import re
 from typing import Any
@@ -221,16 +222,22 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         )
 
     @app.get("/reviewers", response_class=HTMLResponse)
-    def same_name_reviewers(request: Request) -> HTMLResponse:
+    def same_name_reviewers(request: Request, q: str = "") -> HTMLResponse:
+        query = q.strip()[:80]
         db = Database(settings.database_path, settings.timezone)
         try:
             reviews = [_decorate_review(item) for item in db.iter_reviews()]
         finally:
             db.close()
+        groups = (
+            search_similar_reviewer_names(query, reviews)
+            if query
+            else build_same_name_groups(reviews)
+        )
         return TEMPLATES.TemplateResponse(
             request,
             "reviewers.html",
-            {"groups": build_same_name_groups(reviews)},
+            {"groups": groups, "query": query},
         )
 
     @app.get("/api/analysis-status")
@@ -278,52 +285,140 @@ def build_same_name_groups(reviews: list[dict[str, Any]]) -> list[dict[str, Any]
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for review in reviews:
         author = str(review.get("author", "")).strip()
-        key = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", author)).casefold()
+        key = _reviewer_name_key(author)
         if not key or key in {"匿名評論者", "anonymous"}:
             continue
         grouped[key].append(review)
 
     result = []
     for members in grouped.values():
-        shops = {str(item.get("shop_key", "")) for item in members}
-        if len(shops) < 2:
+        group = _build_reviewer_group(members)
+        if group["shop_count"] < 2:
             continue
-        profile_urls = {
-            str((item.get("profile") or {}).get("url", "")).strip()
-            for item in members
-            if str((item.get("profile") or {}).get("url", "")).strip()
-        }
-        missing_profiles = sum(
-            1 for item in members if not str((item.get("profile") or {}).get("url", "")).strip()
-        )
-        if len(profile_urls) == 1 and not missing_profiles:
-            identity_status = "same_profile"
-            identity_text = "相同 Google 個人檔案"
-        elif len(profile_urls) > 1:
-            identity_status = "different_profiles"
-            identity_text = "同名但個人檔案不同，未確認為同一人"
-        else:
-            identity_status = "insufficient"
-            identity_text = "資料不足，未確認為同一人"
-        result.append(
-            {
-                "author": members[0]["author"],
-                "shop_count": len(shops),
-                "review_count": len(members),
-                "profile_count": len(profile_urls),
-                "missing_profiles": missing_profiles,
-                "identity_status": identity_status,
-                "identity_text": identity_text,
-                "reviews": sorted(
-                    members, key=lambda item: str(item.get("first_seen_at", "")), reverse=True
-                ),
-            }
-        )
+        result.append(group)
     return sorted(
         result,
         key=lambda item: (item["shop_count"], item["review_count"], item["author"]),
         reverse=True,
     )
+
+
+def search_similar_reviewer_names(
+    query: str, reviews: list[dict[str, Any]], limit: int = 50
+) -> list[dict[str, Any]]:
+    """Find reviewer display names that are exact, partial, or visibly similar."""
+    query_key = _reviewer_name_key(query)
+    if not query_key:
+        return []
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for review in reviews:
+        author = str(review.get("author", "")).strip()
+        key = _reviewer_name_key(author)
+        if not key or key in {"匿名評論者", "anonymous"}:
+            continue
+        grouped[key].append(review)
+
+    result: list[dict[str, Any]] = []
+    for candidate_key, members in grouped.items():
+        similarity = SequenceMatcher(
+            None, query_key, candidate_key, autojunk=False
+        ).ratio()
+        partial = (
+            min(len(query_key), len(candidate_key)) >= 2
+            and (query_key in candidate_key or candidate_key in query_key)
+        )
+        shortest = min(len(query_key), len(candidate_key))
+        if shortest <= 1:
+            threshold = 1.0
+        elif len(query_key) == 2:
+            threshold = 0.80
+        elif len(query_key) <= 4:
+            threshold = 0.66
+        else:
+            threshold = 0.75
+        if not partial and similarity < threshold:
+            continue
+
+        group = _build_reviewer_group(members)
+        if candidate_key == query_key:
+            match_type = "exact"
+            match_text = "完全符合"
+        elif partial:
+            match_type = "partial"
+            match_text = "部分符合"
+        else:
+            match_type = "similar"
+            match_text = "相似名稱"
+        group.update(
+            {
+                "similarity": similarity,
+                "similarity_percent": round(similarity * 100),
+                "match_type": match_type,
+                "match_text": match_text,
+            }
+        )
+        result.append(group)
+
+    match_rank = {"exact": 2, "partial": 1, "similar": 0}
+    result.sort(
+        key=lambda item: (
+            -match_rank[item["match_type"]],
+            -item["similarity"],
+            -item["shop_count"],
+            -item["review_count"],
+            item["author"].casefold(),
+        )
+    )
+    return result[:limit]
+
+
+def _reviewer_name_key(value: str) -> str:
+    """Normalize a display name while retaining Unicode letters and digits."""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def _build_reviewer_group(members: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered = sorted(
+        members, key=lambda item: str(item.get("first_seen_at", "")), reverse=True
+    )
+    shops = {str(item.get("shop_key", "")) for item in members}
+    profile_urls = {
+        str((item.get("profile") or {}).get("url", "")).strip()
+        for item in members
+        if str((item.get("profile") or {}).get("url", "")).strip()
+    }
+    missing_profiles = sum(
+        1 for item in members if not str((item.get("profile") or {}).get("url", "")).strip()
+    )
+    variants = sorted(
+        {str(item.get("author", "")).strip() for item in members if item.get("author")},
+        key=str.casefold,
+    )
+    if len(shops) < 2:
+        identity_status = "single_shop"
+        identity_text = "目前只出現在 1 家店"
+    elif len(profile_urls) == 1 and not missing_profiles:
+        identity_status = "same_profile"
+        identity_text = "相同 Google 個人檔案"
+    elif len(profile_urls) > 1:
+        identity_status = "different_profiles"
+        identity_text = "同名但個人檔案不同，未確認為同一人"
+    else:
+        identity_status = "insufficient"
+        identity_text = "資料不足，未確認為同一人"
+    return {
+        "author": ordered[0]["author"],
+        "name_variants": variants,
+        "shop_count": len(shops),
+        "review_count": len(members),
+        "profile_count": len(profile_urls),
+        "missing_profiles": missing_profiles,
+        "identity_status": identity_status,
+        "identity_text": identity_text,
+        "reviews": ordered,
+    }
 
 
 def build_search_results(

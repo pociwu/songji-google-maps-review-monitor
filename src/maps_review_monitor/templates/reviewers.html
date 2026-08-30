@@ -3,13 +3,32 @@
 {% block content %}
 <h1>跨店同名評論者</h1>
 <p class="muted">此頁只比對 Google Maps 顯示名稱，供人工檢視；同名不代表同一人，也不會納入疑似協同統計。</p>
+<section class="panel reviewer-search-panel">
+  <form class="reviewer-name-search" action="/reviewers" method="get" role="search">
+    <label for="reviewer-name-query"><strong>搜尋相同或類似名稱</strong></label>
+    <div class="reviewer-search-row">
+      <input id="reviewer-name-query" name="q" value="{{ query }}" maxlength="80" placeholder="輸入評論者名稱，例如：王小明" required>
+      <button type="submit">搜尋名稱</button>
+      {% if query %}<a href="/reviewers">清除搜尋</a>{% endif %}
+    </div>
+    <p class="muted">比對會忽略全形／半形、空白及標點，並找出少量文字差異。相似度只代表顯示名稱接近，不表示為同一人。</p>
+  </form>
+</section>
+{% if query %}
+<h2>「{{ query }}」的類似名稱</h2>
+<p>找到 {{ groups|length }} 個名稱結果，依符合程度排列。</p>
+{% else %}
+<h2>跨店完全同名紀錄</h2>
+{% endif %}
 {% for group in groups %}
 <details class="panel reviewer-group">
   <summary>
     <strong>{{ group.author }}</strong>
+    {% if query %}<span class="name-match {{ group.match_type }}">{{ group.match_text }} · {{ group.similarity_percent }}%</span>{% endif %}
     <span>{{ group.shop_count }} 家店 · {{ group.review_count }} 則評論</span>
     <span class="identity-status {{ group.identity_status }}">{{ group.identity_text }}</span>
   </summary>
+  {% if group.name_variants|length > 1 %}<p class="muted">已合併顯示形式：{{ group.name_variants|join('、') }}</p>{% endif %}
   {% for review in group.reviews %}
   <article class="same-name-review">
     <div class="row">
@@ -28,6 +47,6 @@
   {% endfor %}
 </details>
 {% else %}
-<p>目前沒有相同顯示名稱出現在不同店家的紀錄。</p>
+<p>{% if query %}找不到相同或足夠接近的評論者名稱。{% else %}目前沒有相同顯示名稱出現在不同店家的紀錄。{% endif %}</p>
 {% endfor %}
 {% endblock %}
