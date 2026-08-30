@@ -110,12 +110,11 @@
       </div>
     </figure>
     <figure class="panel time-chart-panel">
-      <figcaption><h3>四個時段</h3><p class="muted">{{ analysis.daypart_count }} 筆可明確落在單一時段；另有 {{ analysis.daypart_crossing_count }} 筆回推區間跨越時段邊界，不強制歸類。</p></figcaption>
-      <div class="daypart-chart" role="list" aria-label="凌晨、上午、下午與晚上分布">
-        {% for item in analysis.dayparts %}<div class="daypart-item" role="listitem" aria-label="{{ item.label }} {{ item.range_label }}：{{ item.count }} 筆，{{ '%.1f'|format(item.percent) }}%">
-          <strong class="daypart-name">{{ item.label }}</strong>
-          <div class="daypart-row"><span>{{ item.range_label }}</span><span class="distribution-track" aria-hidden="true"><span class="distribution-fill time" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }} 筆 · {{ "%.1f"|format(item.percent) }}%</strong></div>
-          <span class="daypart-meta">秒／分鐘級 {{ item.fine_count }} · 小時級 {{ item.hour_count }}</span>
+      <figcaption><h3 id="two-hour-distribution-title">每 2 小時分布</h3><p class="muted">{{ analysis.two_hour_period_count }} 筆可明確落在單一兩小時區段；另有 {{ analysis.two_hour_period_crossing_count }} 筆回推區間跨越日期或兩小時區段邊界，不強制歸類。</p></figcaption>
+      <div class="two-hour-chart" role="list" aria-labelledby="two-hour-distribution-title">
+        {% for item in analysis.two_hour_periods %}<div class="two-hour-item" role="listitem" aria-label="{{ item.range_label }}：{{ item.count }} 筆，占 {{ '%.1f'|format(item.percent) }}%；秒或分鐘級 {{ item.fine_count }} 筆，小時級 {{ item.hour_count }} 筆">
+          <div class="two-hour-row" aria-hidden="true"><span>{{ item.range_label }}</span><span class="distribution-track"><span class="distribution-fill time" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }} 筆 · {{ "%.1f"|format(item.percent) }}%</strong></div>
+          <span class="two-hour-meta" aria-hidden="true">秒／分鐘級 {{ item.fine_count }} · 小時級 {{ item.hour_count }}</span>
         </div>{% endfor %}
       </div>
     </figure>
@@ -134,8 +133,7 @@
   <p>全部 {{ analysis.total_count }} 則評論中，可推定日期 {{ analysis.known_count }} 則（{{ analysis.coverage_percent }}%），無法推定 {{ analysis.unknown_count }} 則。</p>
   <ul>
     <li>有時分回推：{{ analysis.exact_time_count }} 則。</li>
-    <li>四時段分布可用：{{ analysis.daypart_count }} 則；另有 {{ analysis.daypart_crossing_count }} 則跨越六小時區段邊界而未歸類。</li>
-    <li>星期 × 2 小時熱度圖可用：{{ analysis.weekday_time_count }} 則；回推區間未跨日期及兩小時區段邊界。</li>
+    <li>每 2 小時分布與星期熱度圖可用：{{ analysis.two_hour_period_count }} 則；另有 {{ analysis.two_hour_period_crossing_count }} 則跨越日期或兩小時區段邊界而未歸類。</li>
     <li>三小時時段分布與規律判讀可用：{{ analysis.time_slot_count }} 則；沿用既有保守判定門檻。</li>
     <li>日期級推估：{{ analysis.date_estimate_count }} 則；由「N 天前」回推，不分析時段。</li>
     <li>粗略日期：{{ analysis.coarse_date_count }} 則；由週、月或年相對文字變化推估，只供趨勢參考。</li>

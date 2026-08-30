@@ -37,7 +37,6 @@ def test_resolver_uses_taipei_timezone_and_rejects_boundary_for_hour_chart():
     assert resolved["date_certain"] is False
     assert resolved["time_slot"] is None
     assert resolved["two_hour_slot"] is None
-    assert resolved["daypart_slot"] is None
     assert resolved["precision_label"] == "有時分回推"
 
 
@@ -55,8 +54,8 @@ def test_days_and_long_estimates_never_enter_hour_buckets():
     assert result["exact_time_count"] == 0
     assert result["time_slot_count"] == 0
     assert result["weekday_time_count"] == 0
-    assert result["daypart_count"] == 0
-    assert result["daypart_crossing_count"] == 0
+    assert result["two_hour_period_count"] == 0
+    assert result["two_hour_period_crossing_count"] == 0
     assert result["date_estimate_count"] == 1
     assert result["coarse_date_count"] == 1
     assert sum(slot["count"] for slot in result["time_slots"]) == 0
@@ -65,7 +64,7 @@ def test_days_and_long_estimates_never_enter_hour_buckets():
         for row in result["weekday_time_heatmap"]["rows"]
         for cell in row["cells"]
     ) == 0
-    assert [item["count"] for item in result["dayparts"]] == [0, 0, 0, 0]
+    assert [item["count"] for item in result["two_hour_periods"]] == [0] * 12
 
 
 def test_first_seen_time_is_never_used_as_posted_time():
@@ -210,15 +209,18 @@ def test_two_hour_heatmap_excludes_uncertainty_crossing_slot_boundary():
     assert result["time_slot_count"] == 2
     assert result["weekday_time_count"] == 1
     assert result["weekday_time_heatmap"]["rows"][5]["cells"][0]["count"] == 1
+    assert result["two_hour_period_count"] == 1
+    assert result["two_hour_period_crossing_count"] == 1
+    assert result["two_hour_periods"][5]["count"] == 1
 
 
-def test_four_dayparts_use_six_hour_boundaries_and_precision_breakdown():
+def test_two_hour_distribution_uses_boundaries_and_precision_breakdown():
     items = [
-        review("dawn", "2026-08-24T05:30:00+08:00", "minutes"),
-        review("morning", "2026-08-24T06:00:01+08:00", "seconds"),
-        review("morning-boundary", "2026-08-24T06:00:00+08:00", "seconds"),
-        review("afternoon", "2026-08-24T12:01:00+08:00", "minutes"),
-        review("afternoon-boundary", "2026-08-24T12:00:00+08:00", "minutes"),
+        review("midnight", "2026-08-24T00:30:00+08:00", "minutes"),
+        review("two", "2026-08-24T02:00:01+08:00", "seconds"),
+        review("two-boundary", "2026-08-24T02:00:00+08:00", "seconds"),
+        review("noon", "2026-08-24T12:01:00+08:00", "minutes"),
+        review("noon-boundary", "2026-08-24T12:00:00+08:00", "minutes"),
         review("evening", "2026-08-24T19:00:00+08:00", "hours"),
         review("evening-boundary", "2026-08-24T18:30:00+08:00", "hours"),
     ]
@@ -227,23 +229,32 @@ def test_four_dayparts_use_six_hour_boundaries_and_precision_breakdown():
         items, "Asia/Taipei", 30, reference_date=date(2026, 8, 30)
     )
 
-    assert result["daypart_count"] == 4
-    assert result["daypart_crossing_count"] == 3
-    assert [item["label"] for item in result["dayparts"]] == [
-        "凌晨", "上午", "下午", "晚上"
+    assert result["two_hour_period_count"] == result["weekday_time_count"] == 4
+    assert result["two_hour_period_crossing_count"] == 3
+    assert [item["range_label"] for item in result["two_hour_periods"]] == [
+        "00:00–01:59", "02:00–03:59", "04:00–05:59", "06:00–07:59",
+        "08:00–09:59", "10:00–11:59", "12:00–13:59", "14:00–15:59",
+        "16:00–17:59", "18:00–19:59", "20:00–21:59", "22:00–23:59",
     ]
-    assert [item["range_label"] for item in result["dayparts"]] == [
-        "00:00–05:59", "06:00–11:59", "12:00–17:59", "18:00–23:59"
+    expected_counts = [1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0]
+    assert [item["count"] for item in result["two_hour_periods"]] == expected_counts
+    assert [item["percent"] for item in result["two_hour_periods"]] == [
+        25.0, 25.0, 0.0, 0.0, 0.0, 0.0, 25.0, 0.0, 0.0, 25.0, 0.0, 0.0
     ]
-    assert [item["count"] for item in result["dayparts"]] == [1, 1, 1, 1]
-    assert [item["percent"] for item in result["dayparts"]] == [25.0] * 4
-    assert [item["width_percent"] for item in result["dayparts"]] == [25.0] * 4
-    assert [item["fine_count"] for item in result["dayparts"]] == [1, 1, 1, 0]
-    assert [item["hour_count"] for item in result["dayparts"]] == [0, 0, 0, 1]
+    assert [item["width_percent"] for item in result["two_hour_periods"]] == [
+        25.0, 25.0, 0.0, 0.0, 0.0, 0.0, 25.0, 0.0, 0.0, 25.0, 0.0, 0.0
+    ]
+    assert [item["fine_count"] for item in result["two_hour_periods"]] == [
+        1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0
+    ]
+    assert [item["hour_count"] for item in result["two_hour_periods"]] == [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0
+    ]
     assert all(
         item["fine_count"] + item["hour_count"] == item["count"]
-        for item in result["dayparts"]
+        for item in result["two_hour_periods"]
     )
+    assert sum(item["count"] for item in result["two_hour_periods"]) == 4
 
 
 def test_days_data_is_excluded_from_weekday_chart_and_burst_detection():

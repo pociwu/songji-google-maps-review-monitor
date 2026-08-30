@@ -18,11 +18,10 @@ TWO_HOUR_SLOT_LABELS = (
     "00–01", "02–03", "04–05", "06–07", "08–09", "10–11",
     "12–13", "14–15", "16–17", "18–19", "20–21", "22–23",
 )
-DAYPARTS = (
-    ("凌晨", "00:00–05:59"),
-    ("上午", "06:00–11:59"),
-    ("下午", "12:00–17:59"),
-    ("晚上", "18:00–23:59"),
+TWO_HOUR_RANGE_LABELS = (
+    "00:00–01:59", "02:00–03:59", "04:00–05:59", "06:00–07:59",
+    "08:00–09:59", "10:00–11:59", "12:00–13:59", "14:00–15:59",
+    "16:00–17:59", "18:00–19:59", "20:00–21:59", "22:00–23:59",
 )
 
 
@@ -63,7 +62,6 @@ def resolve_review_posted_time(
             date_certain = bool(earliest and earliest.date() == local.date())
             time_slot = _certain_time_slot(local, earliest, 3)
             two_hour_slot = _certain_time_slot(local, earliest, 2)
-            daypart_slot = _certain_time_slot(local, earliest, 6)
             return {
                 "date": local.date(),
                 "datetime": local if precise else None,
@@ -72,7 +70,6 @@ def resolve_review_posted_time(
                 "date_certain": date_certain,
                 "time_slot": time_slot,
                 "two_hour_slot": two_hour_slot,
-                "daypart_slot": daypart_slot,
                 "display": local.strftime("%Y-%m-%d %H:%M") if precise else local.strftime("%Y-%m-%d"),
                 "precision_label": (
                     "有時分回推" if precise else "日期級推估" if precision == "date" else "粗略日期"
@@ -100,7 +97,6 @@ def resolve_review_posted_time(
             "date_certain": False,
             "time_slot": None,
             "two_hour_slot": None,
-            "daypart_slot": None,
             "display": posted_date.isoformat(),
             "precision_label": "粗略日期",
             "source_label": "依 Google 相對時間變化推估",
@@ -151,9 +147,6 @@ def build_review_time_analysis(
     weekday_time_records = [
         item for item in exact_records if item["two_hour_slot"] is not None
     ]
-    daypart_records = [
-        item for item in exact_records if item["daypart_slot"] is not None
-    ]
 
     trend, trend_granularity = _trend_buckets(period_records, start_date, end_date, days)
     weekdays = _distribution(
@@ -167,7 +160,7 @@ def build_review_time_analysis(
         len(time_slot_records),
     )
     weekday_time_heatmap = _weekday_time_heatmap(weekday_time_records)
-    dayparts = _daypart_distribution(daypart_records)
+    two_hour_periods = _two_hour_period_distribution(weekday_time_records)
     interval_records = weekday_records + date_records
     burst_records = weekday_records
     findings = _detect_patterns(
@@ -218,8 +211,8 @@ def build_review_time_analysis(
         "weekday_eligible_count": len(weekday_records),
         "time_slot_count": len(time_slot_records),
         "weekday_time_count": len(weekday_time_records),
-        "daypart_count": len(daypart_records),
-        "daypart_crossing_count": len(exact_records) - len(daypart_records),
+        "two_hour_period_count": len(weekday_time_records),
+        "two_hour_period_crossing_count": len(exact_records) - len(weekday_time_records),
         "date_estimate_count": len(date_records),
         "coarse_date_count": len(coarse_records),
         "pattern_eligible_count": len(interval_records),
@@ -229,7 +222,7 @@ def build_review_time_analysis(
         "weekdays": weekdays,
         "time_slots": time_slots,
         "weekday_time_heatmap": weekday_time_heatmap,
-        "dayparts": dayparts,
+        "two_hour_periods": two_hour_periods,
         "findings": findings,
         "verdict": verdict,
         "records": period_records[:200],
@@ -330,20 +323,21 @@ def _distribution(
     ]
 
 
-def _daypart_distribution(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    counts = Counter(item["daypart_slot"] for item in records)
+def _two_hour_period_distribution(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    counts = Counter(item["two_hour_slot"] for item in records)
     fine_counts = Counter(
-        item["daypart_slot"]
+        item["two_hour_slot"]
         for item in records
         if item["time_unit"] in {"seconds", "minutes"}
     )
     hour_counts = Counter(
-        item["daypart_slot"] for item in records if item["time_unit"] == "hours"
+        item["two_hour_slot"] for item in records if item["time_unit"] == "hours"
     )
     total = len(records)
     return [
         {
-            "label": label,
             "range_label": range_label,
             "count": counts[index],
             "percent": round(counts[index] / total * 100, 1) if total else 0.0,
@@ -351,7 +345,7 @@ def _daypart_distribution(records: list[dict[str, Any]]) -> list[dict[str, Any]]
             "fine_count": fine_counts[index],
             "hour_count": hour_counts[index],
         }
-        for index, (label, range_label) in enumerate(DAYPARTS)
+        for index, range_label in enumerate(TWO_HOUR_RANGE_LABELS)
     ]
 
 
