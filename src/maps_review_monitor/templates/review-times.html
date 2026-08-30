@@ -100,26 +100,41 @@
   <p class="muted">顏色深淺只代表該格篇數，不會單獨判定為時間規律或疑似協同。</p>
 </figure>
 
-<div class="time-chart-grid">
-  <figure class="panel time-chart-panel">
-    <figcaption><h2>星期分布</h2><p class="muted">僅納入回推區間未跨日期邊界的資料，共 {{ analysis.weekday_eligible_count }} 筆；「N 天前」與週／月／年推估不會放入此圖。</p></figcaption>
-    {% if analysis.weekday_eligible_count %}<div class="distribution-chart" role="img" aria-label="星期分布">
-      {% for item in analysis.weekdays %}<div class="distribution-row"><span>{{ item.label }}</span><span class="distribution-track"><span class="distribution-fill" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }}（{{ item.percent }}%）</strong></div>{% endfor %}
-    </div>{% else %}<p>目前沒有日期邊界明確的星期資料。</p>{% endif %}
-  </figure>
-  <figure class="panel time-chart-panel">
-    <figcaption><h2>時段分布</h2><p class="muted">僅納入回推區間完整落在同一個三小時區段的資料，共 {{ analysis.time_slot_count }} 筆。</p></figcaption>
-    {% if analysis.time_slot_count %}<div class="distribution-chart" role="img" aria-label="三小時區段分布">
-      {% for item in analysis.time_slots %}<div class="distribution-row"><span>{{ item.label }}</span><span class="distribution-track"><span class="distribution-fill time" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }}（{{ item.percent }}%）</strong></div>{% endfor %}
-    </div>{% else %}<p>目前沒有精度足夠的時段資料；「N 天前」不會放入此圖。</p>{% endif %}
-  </figure>
-</div>
+<section class="distribution-section" aria-labelledby="distribution-title">
+  <h2 id="distribution-title" class="distribution-section-title">分佈圖</h2>
+  <div class="time-chart-grid">
+    <figure class="panel time-chart-panel">
+      <figcaption><h3>星期分布</h3><p class="muted">僅納入回推區間未跨日期邊界的資料，共 {{ analysis.weekday_eligible_count }} 筆；「N 天前」與週／月／年推估不會放入此圖。</p></figcaption>
+      <div class="distribution-chart" role="list" aria-label="星期分布">
+        {% for item in analysis.weekdays %}<div class="distribution-row" role="listitem" aria-label="{{ item.label }}：{{ item.count }} 筆，{{ '%.1f'|format(item.percent) }}%"><span>{{ item.label }}</span><span class="distribution-track" aria-hidden="true"><span class="distribution-fill" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }} 筆 · {{ "%.1f"|format(item.percent) }}%</strong></div>{% endfor %}
+      </div>
+    </figure>
+    <figure class="panel time-chart-panel">
+      <figcaption><h3>四個時段</h3><p class="muted">{{ analysis.daypart_count }} 筆可明確落在單一時段；另有 {{ analysis.daypart_crossing_count }} 筆回推區間跨越時段邊界，不強制歸類。</p></figcaption>
+      <div class="daypart-chart" role="list" aria-label="凌晨、上午、下午與晚上分布">
+        {% for item in analysis.dayparts %}<div class="daypart-item" role="listitem" aria-label="{{ item.label }} {{ item.range_label }}：{{ item.count }} 筆，{{ '%.1f'|format(item.percent) }}%">
+          <strong class="daypart-name">{{ item.label }}</strong>
+          <div class="daypart-row"><span>{{ item.range_label }}</span><span class="distribution-track" aria-hidden="true"><span class="distribution-fill time" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }} 筆 · {{ "%.1f"|format(item.percent) }}%</strong></div>
+          <span class="daypart-meta">秒／分鐘級 {{ item.fine_count }} · 小時級 {{ item.hour_count }}</span>
+        </div>{% endfor %}
+      </div>
+    </figure>
+  </div>
+</section>
+
+<figure class="panel time-chart-panel">
+  <figcaption><h2>三小時詳細分布</h2><p class="muted">既有規律判讀仍採三小時區段；僅納入回推區間完整落在同一區段的 {{ analysis.time_slot_count }} 筆資料。</p></figcaption>
+  <div class="distribution-chart" role="list" aria-label="三小時區段詳細分布">
+    {% for item in analysis.time_slots %}<div class="distribution-row" role="listitem" aria-label="{{ item.label }}：{{ item.count }} 筆，{{ '%.1f'|format(item.percent) }}%"><span>{{ item.label }}</span><span class="distribution-track" aria-hidden="true"><span class="distribution-fill time" style="--bar-width:{{ item.width_percent }}%"></span></span><strong>{{ item.count }} 筆 · {{ "%.1f"|format(item.percent) }}%</strong></div>{% endfor %}
+  </div>
+</figure>
 
 <section class="panel">
   <h2>資料可信度</h2>
   <p>全部 {{ analysis.total_count }} 則評論中，可推定日期 {{ analysis.known_count }} 則（{{ analysis.coverage_percent }}%），無法推定 {{ analysis.unknown_count }} 則。</p>
   <ul>
     <li>有時分回推：{{ analysis.exact_time_count }} 則。</li>
+    <li>四時段分布可用：{{ analysis.daypart_count }} 則；另有 {{ analysis.daypart_crossing_count }} 則跨越六小時區段邊界而未歸類。</li>
     <li>星期 × 2 小時熱度圖可用：{{ analysis.weekday_time_count }} 則；回推區間未跨日期及兩小時區段邊界。</li>
     <li>三小時時段分布與規律判讀可用：{{ analysis.time_slot_count }} 則；沿用既有保守判定門檻。</li>
     <li>日期級推估：{{ analysis.date_estimate_count }} 則；由「N 天前」回推，不分析時段。</li>

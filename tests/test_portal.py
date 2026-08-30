@@ -68,7 +68,7 @@ enabled = true
     assert "顯示疑似協同評論" in home.text
     assert "hide-highly-similar" in home.text
     assert "hide-suspected" in home.text
-    assert "版本 0.6.1" in home.text
+    assert "版本 0.6.2" in home.text
     assert 'href="/reviewers"' in home.text
     assert 'href="/review-times"' in home.text
     assert 'id="global-search-input"' in home.text
@@ -77,6 +77,7 @@ enabled = true
     assert ".hide-highly-similar .similar-only" in css.text
     assert ".hide-suspected .suspected-only" in css.text
     assert ".time-heatmap" in css.text
+    assert ".daypart-chart" in css.text
     response = client.get("/analysis")
     assert response.status_code == 200
     assert "全部店家分析" in response.text
@@ -96,6 +97,13 @@ enabled = true
     assert "週一" in time_analysis.text and "週日" in time_analysis.text
     assert "00–01" in time_analysis.text and "22–23" in time_analysis.text
     assert "heat-cell heat-level-0" in time_analysis.text
+    assert "分佈圖" in time_analysis.text
+    assert "四個時段" in time_analysis.text
+    assert "凌晨" in time_analysis.text and "晚上" in time_analysis.text
+    assert "00:00–05:59" in time_analysis.text
+    assert "18:00–23:59" in time_analysis.text
+    assert "0 筆可明確落在單一時段" in time_analysis.text
+    assert "三小時詳細分布" in time_analysis.text
     assert "<figure" in time_analysis.text
     assert "發文時間明細" in time_analysis.text
     assert client.get("/review-times?window=bad").status_code == 404
@@ -156,6 +164,7 @@ enabled = true
         observed_local.weekday()
     ]
     assert f'aria-label="{weekday_label} 10–11：1 筆"' in response.text
+    assert 'aria-label="上午 06:00–11:59：1 筆，100.0%"' in response.text
 
 
 def test_same_name_groups_are_cross_shop_and_do_not_assume_identity():
