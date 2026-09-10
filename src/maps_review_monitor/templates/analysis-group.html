@@ -2,21 +2,52 @@
 {% block title %}相似評論群組｜Songji{% endblock %}
 {% block content %}
 <p><a class="back" href="/analysis?scope={{ group.scope }}">← 全部店家分析</a></p>
-<h1>{{ "疑似協同評論" if group.label == "suspected" else "內容高度相似" }}</h1>
+<h1>{{ group.evidence.level_label }}</h1>
 <section class="panel">
-  <p>範圍：{{ "同店" if group.scope == "same" else "跨店" }} · {{ group.review_count }} 則 · {{ group.shop_count }} 家店</p>
-  <p>字面最高 {{ "%.0f"|format(group.max_lexical * 100) }}% · 語意最高 {{ "%.0f"|format(group.max_semantic * 100) }}%</p>
-  <p class="muted">群組指紋：{{ group.fingerprint }}</p>
-  {% if group.evidence %}<h2>佐證</h2><ul>{% for item in group.evidence %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p>只有內容相似，尚無足夠佐證，因此未標為疑似協同。</p>{% endif %}
-  {% for note in data_notes %}<p class="muted">{{ note }}</p>{% endfor %}
+  <div class="row"><p><span class="evidence-version">{{ group.evidence.version_label }}</span> · 範圍：{{ "同店" if group.scope == "same" else "跨店" }}</p><span class="risk-label {{ group.label }}">{{ {"positive":"正向","negative":"負向","mixed":"混合"}[group.direction] }}</span></div>
+  <p class="evidence-summary">{{ group.evidence.summary }}</p>
+  {% if group.evidence.score is not none %}<p><strong>證據分數 {{ "%.0f"|format(group.evidence.score) }}/100</strong> <span class="muted">（複核排序指標，不是造假機率）</span></p>{% endif %}
+  {% if group.evidence.score_breakdown %}
+  <details class="score-breakdown"><summary>查看證據分數組成</summary>
+    <div class="table-scroll" tabindex="0" aria-label="證據分數組成，可水平捲動"><table class="evidence-table"><caption class="sr-only">證據分數組成</caption><thead><tr><th>計分項目</th><th>得分</th><th>上限</th></tr></thead><tbody>{% for item in group.evidence.score_breakdown %}<tr><th>{{ item.title }}</th><td>{{ item.points }}</td><td>{{ item.max_points }}</td></tr>{% endfor %}</tbody></table></div>
+    <p class="muted">複核等級由獨立訊號與資料覆蓋的硬條件決定，不是只看總分。</p>
+  </details>
+  {% endif %}
+  {% set metrics = group.evidence.metrics %}
+  {% set coverage = group.evidence.coverage %}
+  {% set bounded_date_count = (metrics.date_precise_count|default(0)) + (metrics.date_bounded_count|default(0)) %}
+  {% set photo_coverage = coverage.photos|default({}) %}
+  <div class="evidence-metrics">
+    {% if 'decision' in group.evidence %}<div><strong>{{ group.evidence.decision.independent_signal_count }}</strong><span>獨立非內容訊號</span></div>{% endif %}
+    <div><strong>{{ group.review_count }}</strong><span>評論</span></div>
+    <div><strong>{{ group.shop_count }}</strong><span>店家</span></div>
+    <div><strong>{{ coverage.distinct_profiles if not group.evidence.is_legacy else "未記錄" }}</strong><span>不同可確認個人檔案</span></div>
+    <div><strong>{{ metrics.direct_pairs }}/{{ metrics.possible_pairs }}</strong><span>直接相似配對</span></div>
+    <div><strong>{{ "%.0f"|format(metrics.pair_density * 100) }}%</strong><span>群組密度</span></div>
+    <div><strong>{{ bounded_date_count }}/{{ coverage.date_total }}</strong><span>可進時間訊號</span></div>
+  </div>
+  {% if 'min_lexical' in metrics %}
+  <div class="table-scroll" tabindex="0" aria-label="相似度統計，可水平捲動"><table class="evidence-table"><caption class="sr-only">群組直接相似配對統計</caption><thead><tr><th>直接相似配對</th><th>最低</th><th>中位</th><th>最高</th></tr></thead><tbody><tr><th>字面</th><td>{{ "%.0f"|format(metrics.min_lexical * 100) }}%</td><td>{{ "%.0f"|format(metrics.median_lexical * 100) }}%</td><td>{{ "%.0f"|format(metrics.max_lexical * 100) }}%</td></tr><tr><th>語意</th><td>{{ "%.0f"|format(metrics.min_semantic * 100) }}%</td><td>{{ "%.0f"|format(metrics.median_semantic * 100) }}%</td><td>{{ "%.0f"|format(metrics.max_semantic * 100) }}%</td></tr></tbody></table></div>
+  <p class="muted">上述相似度只統計通過候選門檻的直接配對；未形成直接配對的成員會反映在群組密度中。</p>
+  {% endif %}
+  <h2>訊號明細</h2>
+  {% if group.evidence.signals %}<ul class="evidence-signals">{% for item in group.evidence.signals %}<li class="{{ item.state }}"><span class="signal-state">{{ {"supporting":"支持","limitation":"限制","neutral":"未達門檻"}[item.state] }}</span><div><strong>{{ item.label or "分析訊號" }}{% if item.max_points is defined %} · {{ item.points }}/{{ item.max_points }} 分{% endif %}</strong>{% if item.detail %}<p>{{ item.detail }}</p>{% endif %}{% if item.key == "shared_photo" and item.state == "supporting" and item.observed is mapping and item.observed.shared_matches %}<ul class="shared-photo-matches">{% for match in item.observed.shared_matches %}<li><strong>照片指紋 {{ match.fingerprint }}</strong> · {{ match.distinct_profile_count }} 個個人檔案：{% for member in match.members %}{{ member.author or "未具名評論者" }}（{{ member.shop_name or member.shop_key }}）{% if not loop.last %}、{% endif %}{% endfor %}{% if match.members|selectattr("photo_urls")|list %}<div class="shared-photo-evidence" aria-label="此指紋實際命中的照片">{% for member in match.members %}{% for photo in member.photo_urls|default([]) %}<figure><a href="{{ photo }}" target="_blank" rel="noopener"><img src="{{ photo }}" alt="{{ member.author or '未具名評論者' }} 在 {{ member.shop_name or member.shop_key }} 命中此指紋的照片" loading="lazy"></a><figcaption>{{ member.author or "未具名評論者" }} · {{ member.shop_name or member.shop_key }}</figcaption></figure>{% endfor %}{% endfor %}</div>{% endif %}</li>{% endfor %}</ul>{% endif %}</div></li>{% endfor %}</ul>{% else %}<p>目前只有內容相似，沒有可供判讀的獨立行為訊號。</p>{% endif %}
+  <h2>資料覆蓋與限制</h2>
+  {% if group.evidence.is_legacy %}<p>舊版快照沒有記錄 v2 所需的 canonical contributor、時間誤差區間與照片覆蓋；以下數值只是目前資料的參考，不會升級結果。</p>{% endif %}
+  <p>可解析個人檔案 {{ coverage.profile_known_count }}/{{ coverage.profile_total }} 則（{{ "%.0f"|format(coverage.profile_percent * 100) }}%） · 有日期 {{ coverage.date_known_count }}/{{ coverage.date_total }} 則，但只有 {{ bounded_date_count }} 則可進入保守時間訊號（其中 {{ metrics.date_precise_count|default(0) }} 則為時分級）。</p>
+  {% if photo_coverage %}<p>本機照片覆蓋 {{ photo_coverage.reviews_with_hashed_photo|default(0) }}/{{ photo_coverage.total|default(group.review_count) }} 則評論，共 {{ photo_coverage.hashed_files|default(0) }} 個可比對檔案。</p>{% else %}<p class="data-limitation">照片覆蓋資料未記錄，無法判定是否有跨帳號共用照片。</p>{% endif %}
+  {% for note in data_notes %}<p class="data-limitation">{{ note }}</p>{% endfor %}
+  <details><summary>技術識別資訊</summary><p class="muted">群組指紋：{{ group.fingerprint }}</p></details>
 </section>
 {% for review in reviews %}
 <article class="panel review">
   <h2>{{ review.shop_name }}</h2>
   <div class="review-head">{% if review.avatar_url_local %}<img class="avatar" src="{{ review.avatar_url_local }}" alt="{{ review.author }}">{% endif %}<div><h3>{% if review.profile.url %}<a href="{{ review.profile.url }}" target="_blank" rel="noopener">{{ review.author }}</a>{% else %}{{ review.author }}{% endif %}</h3><p>{{ review.stars or "未提供" }}★ · {{ review.time_text }}</p></div></div>
-  <p>字面 {{ "%.0f"|format(review.max_lexical * 100) }}% · 語意 {{ "%.0f"|format(review.max_semantic * 100) }}%</p>
+  {% if review.posted_at_display %}<p class="muted">{{ "推定發文時間" if review.posted_at_precision == "time" else "推定發文日期" }}：{{ review.posted_at_display }}（{{ review.posted_at_source }}）</p>{% else %}<p class="muted">推定發文時間：資料不足</p>{% endif %}
+  <p>與群內直接配對的最高值：字面 {{ "%.0f"|format(review.max_lexical * 100) }}% · 語意 {{ "%.0f"|format(review.max_semantic * 100) }}%</p>
   <p class="body">{{ review.text }}</p>
   {% if review.owner_reply %}<blockquote><strong>店家回覆</strong><br><span class="body">{{ review.owner_reply.text }}</span></blockquote>{% endif %}
+  {% if review.photo_urls_local %}<div class="media-grid evidence-review-media">{% for photo in review.photo_urls_local %}<a href="{{ photo }}" target="_blank" rel="noopener"><img src="{{ photo }}" alt="{{ review.author }} 在 {{ review.shop_name }} 的評論照片，可點擊放大" loading="lazy"></a>{% endfor %}</div>{% endif %}
 </article>
 {% endfor %}
 {% endblock %}

@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doctor":
             return doctor(settings)
         if args.command == "list-reviews":
-            db = Database(settings.database_path, settings.timezone)
+            db = Database(settings.database_path, settings.timezone, settings.root)
             try:
                 for item in list(db.iter_reviews())[: args.limit]:
                     print(f"{item['first_seen_at']} | {item['shop_name']} | {item['stars']}★ | {item['author']} | {item['text'][:80]}")
@@ -91,7 +91,7 @@ def doctor(settings) -> int:
     failures = 0
     print("✓ 設定檔有效")
     try:
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         db.close()
         print("✓ SQLite 可讀寫")
     except Exception as exc:

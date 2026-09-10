@@ -5,7 +5,13 @@ from collections import defaultdict
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
+import hashlib
+import hmac
+import json
 import re
+import secrets
+import threading
+import time
 from typing import Any
 import unicodedata
 from urllib.parse import quote
@@ -15,16 +21,34 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
 from .config import load_settings
 from .database import Database
+from .evidence_inputs import canonical_contributor_id
 from .review_time_analysis import build_review_time_analysis, resolve_review_posted_time
 from . import __version__
+from .shop_registration import RegistrationError, add_shop, resolve_shop_url
 
 
 PACKAGE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
 TIME_WINDOWS = {"30d": 30, "90d": 90, "180d": 180, "365d": 365}
+PUBLIC_MEDIA_SUFFIXES = frozenset(
+    {
+        ".avif",
+        ".gif",
+        ".jpeg",
+        ".jpg",
+        ".m4v",
+        ".mov",
+        ".mp4",
+        ".ogv",
+        ".png",
+        ".webm",
+        ".webp",
+    }
+)
 
 
 def load_content_assets(path: Path) -> list[dict[str, Any]]:
@@ -58,22 +82,100 @@ def _string_list(value: Any, field: str) -> list[str]:
     return value
 
 
+class ResolveShopInput(BaseModel):
+    url: str = Field(min_length=1, max_length=16384)
+
+
+class AddShopInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    token: str = Field(min_length=1, max_length=40000)
+
+
 def create_app(config_path: str = "config.toml") -> FastAPI:
+    config_file = Path(config_path).resolve()
     settings = load_settings(config_path)
     app = FastAPI(title="Songji 店家展示頁", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=str(PACKAGE_DIR / "static")), name="static")
+    signing_key = secrets.token_bytes(32)
+    resolver_slots = threading.BoundedSemaphore(2)
+
+    def require_same_origin(request: Request) -> None:
+        # The tailnet is the access boundary. Reject cross-site forms/fetches
+        # without adding a login to this operator-facing portal.
+        origin = request.headers.get("origin", "")
+        if (
+            origin != str(request.base_url).rstrip("/")
+            or request.headers.get("x-requested-with") != "SongjiPortal"
+        ):
+            raise HTTPException(403, "請從本網站的新增店家表單送出。")
+
+    @app.post("/api/shops/resolve")
+    def resolve_shop(body: ResolveShopInput, request: Request) -> JSONResponse:
+        require_same_origin(request)
+        if not resolver_slots.acquire(blocking=False):
+            raise HTTPException(429, "目前正在解析其他網址，請稍後重試。")
+        try:
+            resolved = resolve_shop_url(body.url)
+        except RegistrationError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        finally:
+            resolver_slots.release()
+        payload = json.dumps({"url": resolved.url, "expires": int(time.time()) + 900}, ensure_ascii=True)
+        signature = hmac.new(signing_key, payload.encode(), hashlib.sha256).hexdigest()
+        return JSONResponse({
+            "url": resolved.url, "name": resolved.name, "note": resolved.note,
+            "token": signature + "." + payload,
+        }, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/shops", status_code=201)
+    def register_shop(body: AddShopInput, request: Request) -> JSONResponse:
+        require_same_origin(request)
+        try:
+            signature, payload = body.token.split(".", 1)
+            expected = hmac.new(signing_key, payload.encode(), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(signature, expected):
+                raise ValueError
+            resolved = json.loads(payload)
+            if resolved["expires"] < time.time():
+                raise ValueError
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(422, "網址預覽已失效，請重新解析後再新增。")
+        try:
+            shop = add_shop(config_file, name=body.name, url=resolved["url"])
+        except RegistrationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, "另一筆店家設定正在儲存，請稍後重試。") from exc
+        except OSError as exc:
+            raise HTTPException(503, "無法儲存設定檔，請確認網頁服務使用者可寫入專案目錄及 config.toml。") from exc
+        return JSONResponse({
+            "shop_key": shop.key, "name": shop.name, "url": shop.url,
+            "message": "店家已加入監控，下一輪排程會建立首次基準；既有評論不會補發通知。",
+        }, status_code=201)
 
     def portal_assets() -> list[dict[str, Any]]:
         return _decorate_assets(load_content_assets(settings.data_dir / "portal" / "content.yaml"))
 
     def shop_statuses() -> list[dict[str, Any]]:
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             statuses = list(db.iter_shop_statuses())
             analysis_counts = db.analysis_shop_counts()
         finally:
             db.close()
-        configured = {shop.key: shop.enabled for shop in settings.shops}
+        # Reload registrations immediately; the next monitor invocation also
+        # loads the complete config, without restarting either service.
+        current_shops = load_settings(config_file).shops
+        configured = {shop.key: shop.enabled for shop in current_shops}
+        known_keys = {item["shop_key"] for item in statuses}
+        for shop in current_shops:
+            if shop.key not in known_keys:
+                statuses.append({
+                    "shop_key": shop.key, "name": shop.name, "url": shop.url,
+                    "initialized": False, "consecutive_failures": 0,
+                    "last_checked_at": None, "last_success_at": None,
+                    "latest_review_at": None, "last_result": "pending",
+                })
         for item in statuses:
             item["enabled"] = configured.get(item["shop_key"], False)
             item.update(analysis_counts.get(item["shop_key"], {"similar": 0, "suspected": 0}))
@@ -96,7 +198,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         query = q.strip()[:100]
         shops = shop_statuses()
         assets = portal_assets()
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews()]
         finally:
@@ -119,34 +221,62 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         status = next((item for item in shop_statuses() if item["shop_key"] == shop_key), None)
         if status is None:
             raise HTTPException(404, "找不到店家")
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews(shop_key)]
             review_analysis = db.review_analysis(shop_key)
             groups = db.analysis_groups(shop_key=shop_key)
-            group_links: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+            group_links: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+            visible_groups = {group["group_id"]: group for group in groups}
             run_id = db.current_analysis_run_id()
             if run_id is not None:
                 for row in db.conn.execute(
-                    """SELECT group_id,shop_key,review_id FROM analysis_group_reviews
+                    """SELECT group_id,shop_key,review_id,max_lexical,max_semantic
+                       FROM analysis_group_reviews
                        WHERE run_id=? AND shop_key=?""",
                     (run_id, shop_key),
                 ):
+                    group = visible_groups.get(row["group_id"])
+                    if group is None:
+                        continue
                     group_links[(row["shop_key"], row["review_id"])].append(
-                        {"group_id": row["group_id"]}
+                        {
+                            "group_id": row["group_id"],
+                            "label": group["label"],
+                            "level": group["evidence"]["level"],
+                            "level_label": group["evidence"]["level_label"],
+                            "max_lexical": row["max_lexical"],
+                            "max_semantic": row["max_semantic"],
+                        }
                     )
         finally:
             db.close()
         for review in reviews:
             key = (review["shop_key"], review["review_id"])
             value = review_analysis.get(key, {})
-            review["analysis_label"] = value.get("label", "")
+            links = group_links.get(key, [])
+            level_priority = {"content_similar": 0, "review": 1, "suspicious_high": 2}
+            links.sort(
+                key=lambda item: (
+                    level_priority.get(item["level"], -1),
+                    max(item["max_lexical"], item["max_semantic"]),
+                ),
+                reverse=True,
+            )
+            strongest = links[0] if links else {}
+            review["analysis_label"] = strongest.get("label", value.get("label", ""))
+            review["analysis_level"] = strongest.get("level", "")
+            review["analysis_level_label"] = strongest.get("level_label", "")
             review["analysis_direction"] = value.get("direction", "")
-            review["max_lexical"] = value.get("max_lexical", 0)
-            review["max_semantic"] = value.get("max_semantic", 0)
-            review["analysis_groups"] = group_links.get(key, [])
+            review["max_lexical"] = strongest.get(
+                "max_lexical", value.get("max_lexical", 0)
+            )
+            review["max_semantic"] = strongest.get(
+                "max_semantic", value.get("max_semantic", 0)
+            )
+            review["analysis_groups"] = links
         if view == "similar":
-            reviews = [item for item in reviews if item["analysis_label"] in {"highly_similar", "suspected"}]
+            reviews = [item for item in reviews if item["analysis_label"] == "highly_similar"]
         elif view == "suspected":
             reviews = [item for item in reviews if item["analysis_label"] == "suspected"]
         page_size = 20
@@ -178,7 +308,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             raise HTTPException(404)
         if sort not in {"count", "similarity", "latest"}:
             raise HTTPException(404)
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             groups = db.analysis_groups(scope=scope)
             status = db.analysis_status()
@@ -200,7 +330,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
 
     @app.get("/analysis/groups/{group_id}", response_class=HTMLResponse)
     def analysis_group_page(request: Request, group_id: str) -> HTMLResponse:
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             result = db.analysis_group(group_id)
         finally:
@@ -208,11 +338,22 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         if result is None:
             raise HTTPException(404)
         group, reviews = result
+        _decorate_evidence_media(group["evidence"])
         data_notes = []
-        if any(not (item.get("profile") or {}).get("url") for item in reviews):
-            data_notes.append("資料不足：部分評論缺少 Google 個人檔案網址，不能作為重複評論者佐證。")
+        if group["evidence"]["is_legacy"]:
+            data_notes.append("此群組來自舊版規則，已降為待人工複核；下次完整分析後會改用證據模型 v2。")
+        elif group["evidence"].get("unsupported_version"):
+            data_notes.append("此群組使用目前程式無法驗證的新版證據格式，已安全降級；請更新程式或重新執行完整分析。")
+        if any(
+            not canonical_contributor_id(
+                str((item.get("profile") or {}).get("url", ""))
+            )
+            for item in reviews
+        ):
+            data_notes.append("資料不足：部分評論缺少可解析的 Google contributor ID，不能作為評論者網絡佐證。")
         if any(not (item.get("estimated_posted_date") or item.get("back_calculated_at")) for item in reviews):
             data_notes.append("資料不足：部分評論缺少可驗證發布日期，不能作為時間集中佐證。")
+        data_notes.append("結論只涵蓋目前監控店家與已擷取評論；證據等級是複核排序，不是造假機率。")
         return TEMPLATES.TemplateResponse(
             request,
             "analysis-group.html",
@@ -226,7 +367,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
     @app.get("/reviewers", response_class=HTMLResponse)
     def same_name_reviewers(request: Request, q: str = "") -> HTMLResponse:
         query = q.strip()[:80]
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews()]
         finally:
@@ -252,7 +393,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
         valid_shop_keys = {item["shop_key"] for item in shops}
         if shop != "all" and shop not in valid_shop_keys:
             raise HTTPException(404, "找不到店家")
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             all_reviews = list(db.iter_reviews())
         finally:
@@ -318,7 +459,7 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
 
     @app.get("/api/analysis-status")
     def analysis_status() -> JSONResponse:
-        db = Database(settings.database_path, settings.timezone)
+        db = Database(settings.database_path, settings.timezone, settings.root)
         try:
             status = db.analysis_status() or {
                 "status": "none", "stage": "尚未執行", "percent": 0, "processed": 0, "total": 0
@@ -329,11 +470,14 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
 
     @app.get("/media/{stored_path:path}")
     def media(stored_path: str) -> FileResponse:
-        target = (settings.root / stored_path).resolve()
-        root = settings.root.resolve()
-        if root not in target.parents or not target.is_file():
+        target = _public_media_path(
+            stored_path,
+            project_root=settings.root,
+            media_roots=(settings.data_dir / "media", settings.data_dir / "portal"),
+        )
+        if target is None:
             raise HTTPException(404)
-        return FileResponse(target)
+        return FileResponse(target, headers={"X-Content-Type-Options": "nosniff"})
 
     return app
 
@@ -360,6 +504,27 @@ def _decorate_review(
     review["posted_at_precision"] = posted["precision"] if posted else "unknown"
     review["posted_at_source"] = posted["source_label"] if posted else ""
     return review
+
+
+def _decorate_evidence_media(evidence: dict[str, Any]) -> None:
+    """Attach public URLs only to the exact files named by photo evidence."""
+    for signal in evidence.get("signals") or []:
+        if not isinstance(signal, dict) or signal.get("key") != "shared_photo":
+            continue
+        observed = signal.get("observed")
+        if not isinstance(observed, dict):
+            continue
+        for match in observed.get("shared_matches") or []:
+            if not isinstance(match, dict):
+                continue
+            for member in match.get("members") or []:
+                if not isinstance(member, dict):
+                    continue
+                member["photo_urls"] = [
+                    _media_url(str(path))
+                    for path in member.get("photo_paths") or []
+                    if str(path).strip()
+                ]
 
 
 def build_same_name_groups(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -466,14 +631,14 @@ def _build_reviewer_group(members: list[dict[str, Any]]) -> dict[str, Any]:
         members, key=lambda item: str(item.get("first_seen_at", "")), reverse=True
     )
     shops = {str(item.get("shop_key", "")) for item in members}
-    profile_urls = {
-        str((item.get("profile") or {}).get("url", "")).strip()
+    contributor_ids = [
+        canonical_contributor_id(
+            str((item.get("profile") or {}).get("url", "")).strip()
+        )
         for item in members
-        if str((item.get("profile") or {}).get("url", "")).strip()
-    }
-    missing_profiles = sum(
-        1 for item in members if not str((item.get("profile") or {}).get("url", "")).strip()
-    )
+    ]
+    known_profiles = {value for value in contributor_ids if value}
+    missing_profiles = sum(not value for value in contributor_ids)
     variants = sorted(
         {str(item.get("author", "")).strip() for item in members if item.get("author")},
         key=str.casefold,
@@ -481,10 +646,10 @@ def _build_reviewer_group(members: list[dict[str, Any]]) -> dict[str, Any]:
     if len(shops) < 2:
         identity_status = "single_shop"
         identity_text = "目前只出現在 1 家店"
-    elif len(profile_urls) == 1 and not missing_profiles:
+    elif len(known_profiles) == 1 and not missing_profiles:
         identity_status = "same_profile"
         identity_text = "相同 Google 個人檔案"
-    elif len(profile_urls) > 1:
+    elif len(known_profiles) > 1:
         identity_status = "different_profiles"
         identity_text = "同名但個人檔案不同，未確認為同一人"
     else:
@@ -495,7 +660,7 @@ def _build_reviewer_group(members: list[dict[str, Any]]) -> dict[str, Any]:
         "name_variants": variants,
         "shop_count": len(shops),
         "review_count": len(members),
-        "profile_count": len(profile_urls),
+        "profile_count": len(known_profiles),
         "missing_profiles": missing_profiles,
         "identity_status": identity_status,
         "identity_text": identity_text,
@@ -562,3 +727,33 @@ def _search_text(value: str) -> str:
 
 def _media_url(stored_path: str) -> str:
     return "/media/" + quote(stored_path.replace("\\", "/"), safe="/")
+
+
+def _public_media_path(
+    stored_path: str,
+    *,
+    project_root: Path,
+    media_roots: tuple[Path, ...],
+) -> Path | None:
+    """Resolve a stored path only when it is a public image or video asset."""
+    try:
+        supplied = Path(stored_path)
+        target = (
+            supplied.resolve()
+            if supplied.is_absolute()
+            else (project_root / supplied).resolve()
+        )
+        if not target.is_file() or target.suffix.casefold() not in PUBLIC_MEDIA_SUFFIXES:
+            return None
+
+        for configured_root in media_roots:
+            public_root = configured_root.resolve()
+            try:
+                relative = target.relative_to(public_root)
+            except ValueError:
+                continue
+            if relative.parts and not any(part.startswith(".") for part in relative.parts):
+                return target
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return None

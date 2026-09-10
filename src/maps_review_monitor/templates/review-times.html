@@ -35,7 +35,7 @@
     {% for finding in analysis.findings %}<li><strong>{{ finding.title }}</strong><br>{{ finding.evidence }}</li>{% endfor %}
   </ul>
   {% endif %}
-  <p class="muted">時間規律或集中只是一項人工檢視線索，不會單獨將評論判定為疑似協同。</p>
+  <p class="muted">時間規律或集中只是一項人工檢視線索，不會單獨提高複核等級。</p>
 </section>
 
 {% if selected_shop == 'all' %}
@@ -97,7 +97,7 @@
   <div class="heatmap-legend" aria-label="顏色由較少至較多">
     <span>較少</span><i class="heat-level-0" aria-hidden="true"></i><i class="heat-level-1" aria-hidden="true"></i><i class="heat-level-2" aria-hidden="true"></i><i class="heat-level-3" aria-hidden="true"></i><i class="heat-level-4" aria-hidden="true"></i><i class="heat-level-5" aria-hidden="true"></i><span>較多</span>
   </div>
-  <p class="muted">顏色深淺只代表該格篇數，不會單獨判定為時間規律或疑似協同。</p>
+  <p class="muted">顏色深淺只代表該格篇數，不會單獨提高複核等級。</p>
 </figure>
 
 <section class="distribution-section" aria-labelledby="distribution-title">

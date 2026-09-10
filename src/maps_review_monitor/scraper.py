@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from hashlib import sha256
 import json
 import logging
@@ -11,14 +12,35 @@ import subprocess
 import time
 from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import warnings
 
 import httpx
+from PIL import Image, UnidentifiedImageError
 from playwright.sync_api import Browser, BrowserContext, Locator, Page, Playwright, sync_playwright
 
 from .config import Settings, ShopConfig
+from .evidence_inputs import canonical_contributor_id
 from .models import OwnerReply, ProfileSummary, ReviewSnapshot
 
 LOG = logging.getLogger(__name__)
+
+SUPPORTED_IMAGE_MIME_TYPES = frozenset({
+    "image/avif",
+    "image/gif",
+    "image/jpeg",
+    "image/jpg",
+    "image/pjpeg",
+    "image/png",
+    "image/webp",
+})
+IMAGE_SUFFIX_BY_FORMAT = {
+    "AVIF": ".avif",
+    "GIF": ".gif",
+    "JPEG": ".jpg",
+    "PNG": ".png",
+    "WEBP": ".webp",
+}
+MAX_IMAGE_DOWNLOAD_BYTES = 25 * 1024 * 1024
 
 
 class ScrapeError(RuntimeError):
@@ -74,6 +96,121 @@ def merge_review_parts(parts: list[dict]) -> list[dict]:
             *target.get("photo_urls", []), *part.get("photo_urls", [])
         ]))
     return merged
+
+
+def verified_image_suffix(content_type: str, payload: bytes) -> str:
+    """Return a suffix derived from decoded image bytes, or reject the payload.
+
+    Content-Type is an allow-list gate, but the file extension is always based
+    on Pillow's decoded format instead of trusting the remote filename/header.
+    """
+    mime = content_type.partition(";")[0].strip().lower()
+    if mime not in SUPPORTED_IMAGE_MIME_TYPES:
+        raise ValueError(f"不支援的圖片 Content-Type：{mime or '缺少'}")
+    if not payload:
+        raise ValueError("圖片內容為空")
+    if len(payload) > MAX_IMAGE_DOWNLOAD_BYTES:
+        raise ValueError(f"圖片超過 {MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB 上限")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(payload)) as image:
+                image_format = (image.format or "").upper()
+                image.verify()
+            # verify() checks container integrity without retaining decoded
+            # pixels. Reopen and load once so truncated pixel data is rejected.
+            with Image.open(BytesIO(payload)) as image:
+                image.load()
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning, UnidentifiedImageError, OSError) as exc:
+        raise ValueError("圖片無法由 Pillow 完整解碼") from exc
+
+    suffix = IMAGE_SUFFIX_BY_FORMAT.get(image_format)
+    if suffix is None:
+        raise ValueError(f"不支援的圖片格式：{image_format or '無法辨識'}")
+    return suffix
+
+
+def merge_profile_summaries(
+    existing: ProfileSummary,
+    discovered: ProfileSummary,
+) -> ProfileSummary:
+    """Merge fresh identity fields without discarding saved enrichment."""
+    return ProfileSummary(
+        url=discovered.url or existing.url,
+        avatar_url=discovered.avatar_url or existing.avatar_url,
+        avatar_path=discovered.avatar_path or existing.avatar_path,
+        # A false Local Guide value can also mean enrichment did not load, so
+        # never erase a previously confirmed positive value.
+        local_guide=existing.local_guide or discovered.local_guide,
+        review_count=(
+            discovered.review_count
+            if discovered.review_count is not None
+            else existing.review_count
+        ),
+        photo_count=(
+            discovered.photo_count
+            if discovered.photo_count is not None
+            else existing.photo_count
+        ),
+    )
+
+
+def profile_identity_status(existing: ProfileSummary, discovered: ProfileSummary) -> str:
+    """Classify whether cached enrichment can safely follow the current URL."""
+    if not discovered.url:
+        return "missing_current_url"
+    discovered_id = canonical_contributor_id(discovered.url)
+    if not discovered_id:
+        return "untrusted_current_url"
+    if not existing.url:
+        return "new_verified_id"
+    existing_id = canonical_contributor_id(existing.url)
+    if existing_id and existing_id == discovered_id:
+        return "same_verified_id"
+    # A different verified ID, or an old URL that cannot be tied to one, must
+    # never donate cached contributor metadata to the newly observed profile.
+    return "changed_verified_id"
+
+
+def fresh_profile_identity(profile: ProfileSummary, *, trusted_url: bool) -> ProfileSummary:
+    """Copy only fields observed for the current identity, never cached assets."""
+    return ProfileSummary(
+        url=profile.url if trusted_url else "",
+        avatar_url=profile.avatar_url if trusted_url else "",
+        local_guide=profile.local_guide,
+        review_count=profile.review_count,
+        photo_count=profile.photo_count,
+    )
+
+
+def stored_photo_paths_available(
+    root: Path,
+    photo_urls: list[str],
+    photo_paths: list[str],
+) -> bool:
+    """Require one decodable local image for every remote review photo."""
+    if len(photo_paths) != len(photo_urls):
+        return False
+    return all(stored_image_path_available(root, stored) for stored in photo_paths)
+
+
+def stored_image_path_available(root: Path, stored: str) -> bool:
+    """Validate a cached image, including files created by older versions."""
+    if not stored:
+        return False
+    path = Path(stored).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    if not path.is_file():
+        return False
+    try:
+        # Content-Type is only an allow-list input here; Pillow determines the
+        # actual format and performs the full container/pixel validation.
+        verified_image_suffix("image/jpeg", path.read_bytes())
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 class MapsScraper:
@@ -211,11 +348,7 @@ class MapsScraper:
                 review = self._make_review(shop, raw)
                 existing = existing_lookup(review.review_id) if existing_lookup else None
                 if existing:
-                    review.profile = existing.profile
-                    if existing.photo_urls == review.photo_urls:
-                        review.photo_paths = existing.photo_paths
-                    else:
-                        self._download_assets(review)
+                    self._merge_existing_review(review, existing)
                 else:
                     self._enrich_profile(review)
                     self._download_assets(review)
@@ -483,8 +616,57 @@ class MapsScraper:
             photo_urls=list(dict.fromkeys(raw.get("photo_urls", []))), owner_reply=reply,
         )
 
+    def _merge_existing_review(
+        self,
+        review: ReviewSnapshot,
+        existing: ReviewSnapshot,
+    ) -> None:
+        """Reuse cached data while backfilling identity and missing media."""
+        fresh_profile = review.profile
+        identity_status = profile_identity_status(existing.profile, fresh_profile)
+        if identity_status in {"same_verified_id", "missing_current_url"}:
+            review.profile = merge_profile_summaries(existing.profile, fresh_profile)
+        elif identity_status == "new_verified_id":
+            # The stable review existed before its contributor URL was
+            # available. Retry enrichment, retaining old fields only as
+            # fallbacks because there is no conflicting prior identity.
+            review.profile = merge_profile_summaries(existing.profile, fresh_profile)
+            self._enrich_profile(review)
+            review.profile = merge_profile_summaries(existing.profile, review.profile)
+        else:
+            trusted = identity_status == "changed_verified_id"
+            # A changed or untrusted current identity invalidates all cached
+            # contributor-only data, including the previous avatar file.
+            review.profile = fresh_profile_identity(fresh_profile, trusted_url=trusted)
+            if trusted:
+                self._enrich_profile(review)
+
+        if review.profile.avatar_path and not stored_image_path_available(
+            self.settings.root, review.profile.avatar_path
+        ):
+            review.profile.avatar_path = ""
+
+        can_reuse_photos = (
+            existing.photo_urls == review.photo_urls
+            and stored_photo_paths_available(
+                self.settings.root,
+                review.photo_urls,
+                existing.photo_paths,
+            )
+        )
+        if can_reuse_photos:
+            review.photo_paths = list(existing.photo_paths)
+            if review.profile.avatar_url and not review.profile.avatar_path:
+                self._download_avatar(review)
+        else:
+            self._download_assets(review)
+
     def _enrich_profile(self, review: ReviewSnapshot) -> None:
-        if not review.profile.url or self.context is None or self._main_page is None:
+        if (
+            not canonical_contributor_id(review.profile.url)
+            or self.context is None
+            or self._main_page is None
+        ):
             return
         if self._profile_visits:
             delay = random.uniform(
@@ -518,7 +700,14 @@ class MapsScraper:
             path = self._download(url, target / f"photo-{index + 1:02d}")
             if path:
                 review.photo_paths.append(self._stored_path(path))
+        self._download_avatar(review, target=target)
+
+    def _download_avatar(self, review: ReviewSnapshot, *, target: Path | None = None) -> None:
         if review.profile.avatar_url:
+            target = target or (
+                self.settings.data_dir / "media" / review.shop_key / review.review_id
+            )
+            target.mkdir(parents=True, exist_ok=True)
             path = self._download(review.profile.avatar_url, target / "avatar")
             if path:
                 review.profile.avatar_path = self._stored_path(path)
@@ -534,10 +723,12 @@ class MapsScraper:
         try:
             response = self.http.get(url)
             response.raise_for_status()
-            mime = response.headers.get("content-type", "").split(";")[0]
-            suffix = {"image/png": ".png", "image/webp": ".webp"}.get(mime, ".jpg")
+            suffix = verified_image_suffix(
+                response.headers.get("content-type", ""),
+                response.content,
+            )
             path = stem.with_suffix(suffix)
-            if not path.exists() or path.stat().st_size != len(response.content):
+            if not path.exists() or path.read_bytes() != response.content:
                 path.write_bytes(response.content)
             return path
         except Exception as exc:

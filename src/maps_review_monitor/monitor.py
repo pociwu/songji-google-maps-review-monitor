@@ -3,19 +3,55 @@ from __future__ import annotations
 import logging
 import random
 import time
+from datetime import timedelta
 
 from .config import Settings
 from .database import Database, utcnow
 from .models import ReviewSnapshot
 from .notifications import TelegramClient, build_parts, deliver_due, split_text
+from .review_times import parse_relative_time
 from .scraper import MapsScraper
 
 LOG = logging.getLogger(__name__)
+NEW_REVIEW_MAX_AGE = timedelta(hours=72)
+
+
+def should_enqueue_review(event_type: str, time_text: str) -> bool:
+    """Keep new-review alerts recent without silently dropping unknown dates.
+
+    Google relative times in weeks/months/years are unquestionably older than
+    the delivery window. Parsed seconds/minutes/hours/days are accepted only
+    while their displayed lower bound is strictly below 72 hours. Unrecognized
+    date text remains eligible so a locale or markup change does not hide a
+    genuinely new review. Updates and owner-reply events are never age-filtered.
+    """
+    if event_type != "review_new":
+        return True
+    relative = parse_relative_time(time_text)
+    if relative is None:
+        return True
+    if relative.unit in {"weeks", "months", "years"}:
+        return False
+    age = {
+        "seconds": timedelta(seconds=relative.value),
+        "minutes": timedelta(minutes=relative.value),
+        "hours": timedelta(hours=relative.value),
+        "days": timedelta(days=relative.value),
+    }.get(relative.unit)
+    return age is not None and age < NEW_REVIEW_MAX_AGE
 
 
 def enqueue_review(
     db: Database, event_type: str, review: ReviewSnapshot, timezone_name: str, base_dir
 ) -> bool:
+    if not should_enqueue_review(event_type, review.time_text):
+        LOG.info(
+            "略過已超過 72 小時的新評論通知：%s/%s（Google 顯示：%s）",
+            review.shop_key,
+            review.review_id,
+            review.time_text,
+        )
+        return False
     digest = review.reply_hash() if event_type.startswith("owner_reply") else review.content_hash()
     event_key = f"{event_type}:{review.shop_key}:{review.review_id}:{digest}"
     first_seen = db.review_first_seen(review.shop_key, review.review_id)
@@ -37,7 +73,7 @@ def run_check(settings: Settings, baseline_only: bool = False) -> dict[str, int]
         "shops_ok": 0, "shops_failed": 0, "reviews": 0, "events": 0,
         "sent": 0, "send_failed": 0, "analysis_ok": 0, "analysis_failed": 0,
     }
-    db = Database(settings.database_path, settings.timezone)
+    db = Database(settings.database_path, settings.timezone, settings.root)
     telegram = None
     telegram_budget = settings.telegram_batch_limit
     try:

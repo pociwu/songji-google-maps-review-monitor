@@ -175,19 +175,41 @@ def deliver_due(
     delay_max_seconds: float = 7,
 ) -> tuple[int, int]:
     sent = failed = 0
-    rows = db.due_parts(limit=limit)
-    for index, row in enumerate(rows):
-        if index:
+    processed = 0
+    # The lease covers the configured inter-message delay plus the client's
+    # normal HTTP timeout. Each part is claimed separately so an idle worker
+    # does not hold an entire batch while sleeping.
+    lease_seconds = max(300.0, max(0.0, delay_max_seconds) + 60.0)
+    while processed < limit:
+        rows = db.claim_due_parts(limit=1, lease_seconds=lease_seconds)
+        if not rows:
+            break
+        row = rows[0]
+        claim_token = str(row["claim_token"])
+        if processed:
             delay = random.uniform(delay_min_seconds, delay_max_seconds)
             LOG.info("下一則 Telegram 通知將等待 %.1f 秒", delay)
             time.sleep(delay)
+        processed += 1
+        # A notification may expire while this batch is rate-limited. Recheck
+        # both the event TTL and our claim immediately before contacting Telegram.
+        if not db.claim_is_sendable(row["id"], claim_token):
+            LOG.info(
+                "略過已過期或已由其他程序接手的 Telegram 事件 %s 第 %s 部分",
+                row["event_key"], row["part_no"],
+            )
+            continue
         try:
             client.send_part(json.loads(row["payload_json"]))
-            db.mark_part_sent(row["id"])
+            if not db.mark_part_sent(row["id"], claim_token):
+                LOG.error(
+                    "Telegram 事件 %s 第 %s 部分已送出，但 claim 已失效",
+                    row["event_key"], row["part_no"],
+                )
             sent += 1
         except Exception as exc:
             attempts = int(row["attempts"]) + 1
-            db.mark_part_failed(row["id"], attempts, str(exc))
+            db.mark_part_failed(row["id"], attempts, str(exc), claim_token)
             LOG.error("Telegram 事件 %s 第 %s 部分發送失敗：%s", row["event_key"], row["part_no"], exc)
             failed += 1
     return sent, failed

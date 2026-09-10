@@ -1,5 +1,8 @@
 .env
 config.toml
+config.toml.lock
+config.toml.before-add.bak
+.shop-config-*
 .pytest_cache/
 .pytest-tmp/
 .test-tmp/

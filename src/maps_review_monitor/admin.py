@@ -13,7 +13,7 @@ from .database import Database
 
 
 def export_reviews(settings: Settings, output: Path, fmt: str, shop_key: str | None = None) -> int:
-    db = Database(settings.database_path, settings.timezone)
+    db = Database(settings.database_path, settings.timezone, settings.root)
     try:
         rows = list(db.iter_reviews(shop_key))
     finally:

@@ -3,10 +3,11 @@
 {% block content %}
 <h1>全部店家分析</h1>
 <p class="muted">目前結果只使用完整成功的分析快照；分析失敗不會覆蓋上一版。</p>
+<p class="panel evidence-notice">相似內容只用來找候選。現階段只有跨店評論者網絡與經驗證的共用照片屬於獨立升級證據；未校正店家基準的時間鄰近只作背景提示。證據等級不是造假機率。</p>
 {% if status and status.status == "failed" %}<p class="panel failure">最近一次分析未完成：{{ status.error or status.stage }}。目前仍顯示上一版完整結果。</p>{% endif %}
-<nav class="tabs">
-  <a class="{{ 'active' if scope == 'same' }}" href="?scope=same&direction={{ direction }}&sort={{ sort }}">同店</a>
-  <a class="{{ 'active' if scope == 'cross' }}" href="?scope=cross&direction={{ direction }}&sort={{ sort }}">跨店</a>
+<nav class="tabs" aria-label="分析範圍">
+  <a class="{{ 'active' if scope == 'same' }}" href="?scope=same&direction={{ direction }}&sort={{ sort }}" {% if scope == 'same' %}aria-current="page"{% endif %}>同店</a>
+  <a class="{{ 'active' if scope == 'cross' }}" href="?scope=cross&direction={{ direction }}&sort={{ sort }}" {% if scope == 'cross' %}aria-current="page"{% endif %}>跨店</a>
 </nav>
 <form class="filters" method="get">
   <input type="hidden" name="scope" value="{{ scope }}">
@@ -16,7 +17,7 @@
     {% endfor %}
   </select></label>
   <label>排序 <select name="sort">
-    {% for value,label in [('count','疑似篇數'),('similarity','最高相似度'),('latest','最新')] %}
+    {% for value,label in [('count','群組篇數'),('similarity','最高相似度'),('latest','最新')] %}
     <option value="{{ value }}" {{ 'selected' if sort == value }}>{{ label }}</option>
     {% endfor %}
   </select></label>
@@ -24,9 +25,18 @@
 </form>
 {% for group in groups %}
 <article class="panel {{ 'similar-only' if group.label == 'highly_similar' else 'suspected-only' }}">
-  <div class="row"><h2>{{ "疑似協同評論" if group.label == "suspected" else "內容高度相似" }}</h2><span class="risk-label {{ group.label }}">{{ {"positive":"正向","negative":"負向","mixed":"混合"}[group.direction] }}</span></div>
-  <p>{{ group.review_count }} 則評論 · {{ group.shop_count }} 家店 · 字面最高 {{ "%.0f"|format(group.max_lexical * 100) }}% · 語意最高 {{ "%.0f"|format(group.max_semantic * 100) }}%</p>
-  {% if group.evidence %}<ul>{% for item in group.evidence %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+  <div class="row">
+    <h2>{{ group.evidence.level_label }}</h2>
+    <span><span class="evidence-version">{{ group.evidence.version_label }}</span> <span class="risk-label {{ group.label }}">{{ {"positive":"正向","negative":"負向","mixed":"混合"}[group.direction] }}</span></span>
+  </div>
+  <p>{{ group.evidence.summary }}</p>
+  <p>{{ group.review_count }} 則評論 · {{ group.shop_count }} 家店{% if not group.evidence.is_legacy and group.evidence.coverage.distinct_profiles is defined %} · {{ group.evidence.coverage.distinct_profiles }} 個不同可確認個人檔案{% endif %}</p>
+  {% if 'decision' in group.evidence %}<p><strong>命中 {{ group.evidence.decision.independent_signal_count }} 類獨立非內容訊號</strong></p>{% endif %}
+  {% set metrics = group.evidence.metrics %}
+  {% if 'pair_density' in metrics %}<p>直接相似配對 {{ metrics.direct_pairs }}/{{ metrics.possible_pairs }} · 群組密度 {{ "%.0f"|format(metrics.pair_density * 100) }}%</p>{% endif %}
+  {% if 'min_lexical' in metrics %}<p class="muted">字面 最低／中位／最高 {{ "%.0f"|format(metrics.min_lexical * 100) }}%／{{ "%.0f"|format(metrics.median_lexical * 100) }}%／{{ "%.0f"|format(metrics.max_lexical * 100) }}% · 語意 最低／中位／最高 {{ "%.0f"|format(metrics.min_semantic * 100) }}%／{{ "%.0f"|format(metrics.median_semantic * 100) }}%／{{ "%.0f"|format(metrics.max_semantic * 100) }}%</p>{% else %}<p class="muted">字面最高 {{ "%.0f"|format(group.max_lexical * 100) }}% · 語意最高 {{ "%.0f"|format(group.max_semantic * 100) }}%</p>{% endif %}
+  {% if group.evidence.score is not none %}<p><strong>證據分數 {{ "%.0f"|format(group.evidence.score) }}/100</strong> <span class="muted">（用於安排人工複核，不是造假機率）</span></p>{% endif %}
+  {% if group.evidence.supporting %}<ul class="evidence-preview">{% for item in group.evidence.supporting[:3] %}<li><strong>{{ item.label }}</strong>{% if item.detail %}：{{ item.detail }}{% endif %}</li>{% endfor %}</ul>{% endif %}
   <a href="/analysis/groups/{{ group.group_id }}">查看完整評論與證據 →</a>
 </article>
 {% else %}<p>目前沒有符合條件的群組。</p>{% endfor %}

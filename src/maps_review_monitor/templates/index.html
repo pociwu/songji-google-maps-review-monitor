@@ -13,10 +13,27 @@
     <label class="visibility-toggle" for="suspected-review-toggle">
       <input id="suspected-review-toggle" type="checkbox" role="switch" checked>
       <span class="switch-track" aria-hidden="true"></span>
-      <span>顯示疑似協同評論</span>
+      <span>顯示高優先複核</span>
     </label>
   </div>
 </section>
+<details class="panel add-shop-panel" id="add-shop-panel">
+  <summary>＋ 新增監控店家</summary>
+  <form id="add-shop-form" class="add-shop-form">
+    <label for="new-shop-url">Google 店家網址</label>
+    <div class="new-shop-url-row"><input id="new-shop-url" type="url" required maxlength="16384" placeholder="https://share.google/…" autocomplete="off"><button id="resolve-shop-button" type="button">解析網址</button></div>
+    <p class="muted">貼上分享網址後會自動解析。支援 share.google、maps.app.goo.gl 與完整 Google Maps 店家網址。</p>
+    <div id="new-shop-preview" hidden>
+      <label for="new-shop-name">店家名稱</label>
+      <input id="new-shop-name" type="text" maxlength="120" placeholder="請填寫店家名稱及分店" autocomplete="off">
+      <p><a id="new-shop-link" target="_blank" rel="noopener noreferrer">開啟 Google Maps 確認店家 ↗</a></p>
+      <p id="new-shop-note" class="muted"></p>
+      <button id="add-shop-button" type="submit" disabled>確認新增監控</button>
+      <p class="muted">新增後會在下一輪排程開始監控；第一次查詢只建立基準，不會補發既有評論。最多啟用 10 家店。</p>
+    </div>
+    <p id="new-shop-status" role="status" aria-live="polite"></p>
+  </form>
+</details>
 <section class="shop-grid" id="shop-grid" aria-label="店家列表">
 {% for shop in shops %}
   <article class="shop-card" data-shop-key="{{ shop.shop_key }}">
@@ -31,7 +48,7 @@
       <p>最新評論：{{ shop.latest_review_at or "尚無評論" }}</p>
       <div class="risk-counts">
         <span class="similar-only">高度相似 <strong>{{ shop.similar }}</strong></span>
-        <span class="danger suspected-only">疑似協同 <strong>{{ shop.suspected }}</strong></span>
+        <span class="danger suspected-only">高優先複核 <strong>{{ shop.suspected }}</strong></span>
       </div>
       {% if shop.latest_asset %}<p class="muted">最新動態：{{ shop.latest_asset.title }}</p>{% endif %}
     </a>

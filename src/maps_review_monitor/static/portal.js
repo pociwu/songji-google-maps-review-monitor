@@ -1,4 +1,96 @@
 (() => {
+  const form = document.querySelector("#add-shop-form");
+  if (!form) return;
+  const urlInput = document.querySelector("#new-shop-url");
+  const nameInput = document.querySelector("#new-shop-name");
+  const preview = document.querySelector("#new-shop-preview");
+  const status = document.querySelector("#new-shop-status");
+  const resolveButton = document.querySelector("#resolve-shop-button");
+  const addButton = document.querySelector("#add-shop-button");
+  let token = "";
+  let generation = 0;
+  let timer;
+  let saving = false;
+  const api = async (path, body) => {
+    const response = await fetch(path, {
+      method: "POST", headers: {"Content-Type": "application/json", "X-Requested-With": "SongjiPortal"},
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "欄位格式不正確，請檢查後重試。");
+    return result;
+  };
+  const resolve = async () => {
+    clearTimeout(timer);
+    if (saving || !urlInput.reportValidity()) return;
+    const current = ++generation;
+    token = "";
+    preview.hidden = true;
+    addButton.disabled = true;
+    resolveButton.disabled = true;
+    status.textContent = "正在解析 Google 分享網址…";
+    try {
+      const result = await api("/api/shops/resolve", {url: urlInput.value.trim()});
+      if (current !== generation) return;
+      token = result.token;
+      nameInput.value = result.name;
+      nameInput.required = true;
+      document.querySelector("#new-shop-link").href = result.url;
+      document.querySelector("#new-shop-note").textContent = result.note || "已取得店家網址，請確認店名後新增。";
+      preview.hidden = false;
+      addButton.disabled = false;
+      status.textContent = "網址已解析，請確認店家。";
+    } catch (error) {
+      if (current === generation) status.textContent = error.message || "解析失敗，請稍後重試。";
+    } finally {
+      if (current === generation) resolveButton.disabled = false;
+    }
+  };
+  urlInput.addEventListener("input", () => {
+    ++generation;
+    token = "";
+    preview.hidden = true;
+    nameInput.required = false;
+    addButton.disabled = true;
+    resolveButton.disabled = false;
+    status.textContent = "";
+    clearTimeout(timer);
+    if (urlInput.value.trim() && urlInput.validity.valid) timer = setTimeout(resolve, 700);
+  });
+  resolveButton.addEventListener("click", resolve);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (saving) return;
+    if (!token) { await resolve(); return; }
+    if (!nameInput.reportValidity()) return;
+    saving = true;
+    addButton.disabled = true;
+    urlInput.disabled = true;
+    resolveButton.disabled = true;
+    status.textContent = "正在儲存監控店家…";
+    try {
+      const result = await api("/api/shops", {name: nameInput.value.trim(), token});
+      try { sessionStorage.setItem("songji.portal.shop-added", result.message); } catch {}
+      window.location.assign("/");
+    } catch (error) {
+      status.textContent = error.message || "儲存失敗，請稍後重試。";
+      saving = false;
+      addButton.disabled = false;
+      urlInput.disabled = false;
+      resolveButton.disabled = false;
+    }
+  });
+  try {
+    const message = sessionStorage.getItem("songji.portal.shop-added");
+    if (message) {
+      document.querySelector("#add-shop-panel").open = true;
+      status.textContent = message;
+      sessionStorage.removeItem("songji.portal.shop-added");
+    }
+  } catch {}
+})();
+
+(() => {
   const grid = document.querySelector("#shop-grid");
   if (!grid) return;
 
