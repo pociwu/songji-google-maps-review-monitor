@@ -308,7 +308,7 @@ def test_notification_expiry_migration_is_backed_up_and_backfilled(tmp_path: Pat
         row[1] for row in db.conn.execute("PRAGMA table_info(notification_parts)")
     }
     assert {"expires_at", "claim_token", "claimed_at", "claim_expires_at"} <= columns
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 6
     db.close()
     backups = list(tmp_path.glob("legacy.sqlite3.bak-*"))
     assert len(backups) == 1

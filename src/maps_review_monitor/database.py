@@ -18,7 +18,7 @@ from .models import ReviewSnapshot
 from .review_times import back_calculate, estimate_from_transition, parse_relative_time
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 NOTIFICATION_TTL = timedelta(days=7)
 NOTIFICATION_MAX_ATTEMPTS = 8
 NOTIFICATION_CLAIM_LEASE = timedelta(minutes=5)
@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS reviews (
   time_parse_status TEXT NOT NULL DEFAULT 'pending',
   PRIMARY KEY (shop_key, review_id), FOREIGN KEY(shop_key) REFERENCES shops(shop_key)
 );
+CREATE TABLE IF NOT EXISTS shop_overview_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shop_key TEXT NOT NULL REFERENCES shops(shop_key), captured_at TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL, changes_json TEXT NOT NULL, observed_fields_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shop_overview_history ON shop_overview_versions(shop_key,id DESC);
 CREATE TABLE IF NOT EXISTS review_time_observations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   shop_key TEXT NOT NULL, review_id TEXT NOT NULL, time_text TEXT NOT NULL,

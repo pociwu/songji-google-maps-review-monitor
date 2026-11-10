@@ -15,6 +15,7 @@ import time
 from typing import Any
 import unicodedata
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
@@ -29,6 +30,7 @@ from .evidence_inputs import canonical_contributor_id
 from .review_time_analysis import build_review_time_analysis, resolve_review_posted_time
 from . import __version__
 from .shop_registration import RegistrationError, add_shop, resolve_shop_url
+from .shop_overview import FIELDS as OVERVIEW_FIELDS, display as overview_display, history as overview_history
 
 
 PACKAGE_DIR = Path(__file__).parent
@@ -212,9 +214,9 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
 
     @app.get("/shops/{shop_key}", response_class=HTMLResponse)
     def shop_page(
-        request: Request, shop_key: str, page: int = 1, view: str = "all"
+        request: Request, shop_key: str, page: int = 1, view: str = "all", overview_page: int = 1
     ) -> HTMLResponse:
-        if page < 1:
+        if page < 1 or overview_page < 1:
             raise HTTPException(404)
         if view not in {"all", "similar", "suspected"}:
             raise HTTPException(404)
@@ -223,6 +225,13 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             raise HTTPException(404, "找不到店家")
         db = Database(settings.database_path, settings.timezone, settings.root)
         try:
+            overview_latest = overview_history(db, shop_key, size=1)
+            overview_versions = overview_history(db, shop_key, page=overview_page)
+            overview_total = db.conn.execute("SELECT count(*) FROM shop_overview_versions WHERE shop_key=?", (shop_key,)).fetchone()[0]
+            for version in overview_latest + overview_versions:
+                version["captured_at"] = datetime.fromisoformat(version["captured_at"]).astimezone(ZoneInfo(settings.timezone)).strftime("%Y-%m-%d %H:%M:%S %Z")
+                cover = version["values"].get("cover")
+                version["cover_url"] = _media_url(cover["path"]) if cover else ""
             reviews = [_decorate_review(item, settings.timezone) for item in db.iter_reviews(shop_key)]
             review_analysis = db.review_analysis(shop_key)
             groups = db.analysis_groups(shop_key=shop_key)
@@ -287,6 +296,12 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
             "shop.html",
             {
                 "shop": status,
+                "overview": overview_latest[0] if overview_latest else None,
+                "overview_versions": overview_versions,
+                "overview_page": overview_page,
+                "overview_has_next": overview_page * 20 < overview_total,
+                "overview_fields": OVERVIEW_FIELDS,
+                "overview_display": overview_display,
                 "assets": [asset for asset in portal_assets() if asset["shop_key"] == shop_key],
                 "reviews": shown,
                 "groups": groups,

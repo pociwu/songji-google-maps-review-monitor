@@ -2,6 +2,25 @@
 {% block title %}{{ shop.name }}｜Songji 店家狀況{% endblock %}
 {% block content %}
 <p><a class="back" href="/">← 所有店家</a></p><h1>{{ shop.name }}</h1>
+<section class="panel" id="overview"><h2>店家總覽</h2>
+{% if overview %}
+<p class="muted">目前版本 #{{ overview.id }} · 變更偵測時間：{{ overview.captured_at }}</p>
+{% if overview.cover_url %}<div class="media-grid"><img src="{{ overview.cover_url }}" alt="店家封面" loading="lazy"></div>{% endif %}
+<dl>{% for key, label in overview_fields.items() if key != 'cover' %}<dt>{{ label }}</dt><dd class="body">{{ overview_display(overview['values'].get(key)) }}</dd>{% endfor %}</dl>
+<p class="muted">未成功讀取的欄位保留前次已確認值；未確認不等於店家未提供。營業時間為完整每週排程，不包含即時營業狀態。照片差異不代表店家主動修改。</p>
+{% else %}<p>尚未取得店家總覽，下一輪巡檢會嘗試擷取。</p>{% endif %}
+</section>
+<section class="panel" id="overview-history"><h2>總覽歷史版本</h2>
+{% for version in overview_versions %}
+<details><summary>#{{ version.id }} · {{ version.captured_at }} · {{ version.changes|length }} 個欄位變更</summary>
+{% if version.changes %}<dl>{% for key, change in version.changes.items() %}<dt>{{ overview_fields[key] }}</dt><dd class="body">原值：{{ overview_display(change.before) }}<br>新值：{{ overview_display(change.after) }}</dd>{% endfor %}</dl>{% else %}<p>首次基準（不發送通知）</p>{% endif %}
+<h3>此版本完整資料</h3><dl>{% for key, label in overview_fields.items() if key != 'cover' %}<dt>{{ label }}{% if key not in version.observed_fields %}（沿用／未確認）{% endif %}</dt><dd class="body">{{ overview_display(version['values'].get(key)) }}</dd>{% endfor %}</dl>
+{% if version.cover_url %}<div class="media-grid"><img src="{{ version.cover_url }}" alt="歷史版本封面" loading="lazy"></div>{% endif %}
+</details>
+{% else %}<p>尚無歷史版本。</p>{% endfor %}
+{% if overview_page > 1 %}<a href="?view={{ view }}&page={{ page }}&overview_page={{ overview_page - 1 }}#overview-history">較新的版本</a>{% endif %}
+{% if overview_has_next %}<a href="?view={{ view }}&page={{ page }}&overview_page={{ overview_page + 1 }}#overview-history">較舊的版本</a>{% endif %}
+</section>
 <section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl><p><a href="/review-times?shop={{ shop.shop_key }}">查看本店發文時間分析 →</a></p></section>
 <section class="panel">
   <h2>相似評論摘要</h2>

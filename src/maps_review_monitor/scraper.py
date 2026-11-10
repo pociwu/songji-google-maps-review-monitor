@@ -21,6 +21,7 @@ from playwright.sync_api import Browser, BrowserContext, Locator, Page, Playwrig
 from .config import Settings, ShopConfig
 from .evidence_inputs import canonical_contributor_id
 from .models import OwnerReply, ProfileSummary, ReviewSnapshot
+from .shop_overview import normalize_overview
 
 LOG = logging.getLogger(__name__)
 
@@ -313,12 +314,20 @@ class MapsScraper:
     def scrape_shop(
         self, shop: ShopConfig,
         existing_lookup: Callable[[str], ReviewSnapshot | None] | None = None,
+        overview_callback: Callable[[dict], None] | None = None,
     ) -> list[ReviewSnapshot]:
         assert self.context is not None and self._main_page is not None
         page = self._main_page
         try:
             page.goto(with_locale(shop.url, self.settings.locale), wait_until="domcontentloaded")
             self._reject_block_page(page)
+            if overview_callback is not None:
+                try:
+                    overview = self._extract_overview(page, shop)
+                except Exception as exc:
+                    LOG.warning("店家總覽擷取失敗（仍繼續評論監控）：%s", exc)
+                else:
+                    overview_callback(overview)
             feed = self._open_reviews(page)
             self._sort_newest(page)
             cards = self._load_cards(feed)
@@ -357,6 +366,70 @@ class MapsScraper:
         except Exception:
             self.save_debug(page, shop.key)
             raise
+
+    def _extract_overview(self, page: Page, shop: ShopConfig) -> dict:
+        heading = page.locator('h1.DUwDvf:visible')
+        heading.first.wait_for(state="visible", timeout=15000)
+        if heading.count() != 1:
+            raise ScrapeError("無法確認唯一店家總覽，略過總覽更新")
+        raw = heading.first.evaluate(r"""heading => {
+          const root = heading.closest('[role="main"]');
+          if (!root) return {};
+          const text = selector => root.querySelector(selector)?.textContent?.trim() || '';
+          const label = selector => root.querySelector(selector)?.getAttribute('aria-label') || '';
+          const rating = label('span[role="img"][aria-label*="星"], span[role="img"][aria-label*="star"]');
+          const count = [...root.querySelectorAll('button[aria-label]')]
+            .map(x => x.getAttribute('aria-label')).find(x => /[\d,，]+\s*(則評論|篇評論|reviews?)/i.test(x)) || '';
+          return {name: heading.textContent, rating, review_count: count,
+            address: text('[data-item-id="address"] .Io6YTe'),
+            phone: text('[data-item-id^="phone:tel:"] .Io6YTe'),
+            website: root.querySelector('a[data-item-id="authority"]')?.href || '',
+            cover_url: root.querySelector('button[jsaction*="heroHeaderImage"] img')?.src || ''};
+        }""")
+        hours = page.locator('[data-item-id="oh"]:visible')
+        if hours.count() == 1:
+            try:
+                hours.click(timeout=3000)
+                page.locator('table.eK4R0e:visible').first.wait_for(state="visible", timeout=3000)
+                raw["hours"] = page.locator('table.eK4R0e:visible tr').all_inner_texts()
+            except Exception:
+                LOG.info("未取得完整每週營業時間；保留既有值")
+            finally:
+                page.keyboard.press("Escape")
+        self._reject_block_page(page)
+        result = normalize_overview(raw)
+        cover = self._capture_overview_cover(raw.get("cover_url", ""), shop.key)
+        if cover:
+            result["cover"] = cover
+        return result
+
+    def _capture_overview_cover(self, url: str, shop_key: str) -> dict | None:
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" or not any(host == domain or host.endswith("." + domain) for domain in ("googleusercontent.com", "ggpht.com")):
+            return None
+        # Use a fixed rendition so viewport size does not change image bytes.
+        url = re.sub(r"=[whs]\d[^/]*$", "=w800-h600-k-no", url)
+        try:
+            with self.http.stream("GET", url, follow_redirects=False, timeout=10) as response:
+                response.raise_for_status()
+                content = bytearray()
+                for chunk in response.iter_bytes():
+                    content.extend(chunk)
+                    if len(content) > 10_000_000:
+                        raise ValueError("封面超過 10 MB")
+                data = bytes(content)
+                suffix = verified_image_suffix(response.headers.get("content-type", ""), data)
+            digest = sha256(data).hexdigest()
+            target = self.settings.data_dir / "media" / shop_key / "overview"
+            target.mkdir(parents=True, exist_ok=True)
+            path = target / (digest + suffix)
+            if not path.exists():
+                path.write_bytes(data)
+            return {"sha256": digest, "path": self._stored_path(path)}
+        except Exception as exc:
+            LOG.warning("總覽封面未確認，保留既有值：%s", exc)
+            return None
 
     def _open_reviews(self, page: Page) -> Locator:
         feed = self._visible_review_feed(page)

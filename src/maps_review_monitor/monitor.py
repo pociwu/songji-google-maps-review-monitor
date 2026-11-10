@@ -11,6 +11,7 @@ from .models import ReviewSnapshot
 from .notifications import TelegramClient, build_parts, deliver_due, split_text
 from .review_times import parse_relative_time
 from .scraper import MapsScraper
+from .shop_overview import record as record_overview
 
 LOG = logging.getLogger(__name__)
 NEW_REVIEW_MAX_AGE = timedelta(hours=72)
@@ -94,7 +95,14 @@ def run_check(settings: Settings, baseline_only: bool = False) -> dict[str, int]
                 initialized = db.is_initialized(shop.key)
                 notify = initialized and not baseline_only
                 try:
-                    reviews = scraper.scrape_shop(shop, lambda review_id: db.get_review(shop.key, review_id))
+                    def save_overview(observed):
+                        if record_overview(db, shop, observed, notify=not baseline_only):
+                            stats["events"] += 1
+
+                    reviews = scraper.scrape_shop(
+                        shop, lambda review_id: db.get_review(shop.key, review_id),
+                        overview_callback=save_overview,
+                    )
                     for review in reviews:
                         events = db.upsert_review(review, notify=notify)
                         stats["reviews"] += 1
