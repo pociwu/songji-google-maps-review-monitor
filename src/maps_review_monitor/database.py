@@ -465,6 +465,18 @@ class Database:
         self.conn.commit()
         return int(row[0]), should_alert
 
+    def mark_shop_waiting_reviews(self, shop_key: str) -> bool:
+        """Only never-initialized shops can be pending; never erase known reviews."""
+        now = utcnow()
+        cur = self.conn.execute(
+            """UPDATE shops SET consecutive_failures=0,alert_active=0,last_checked_at=?,updated_at=?
+               WHERE shop_key=? AND initialized=0
+               AND NOT EXISTS(SELECT 1 FROM reviews WHERE reviews.shop_key=shops.shop_key)""",
+            (now, now, shop_key),
+        )
+        self.conn.commit()
+        return bool(cur.rowcount)
+
     def add_event(self, event_key: str, event_type: str, payload: dict[str, Any], parts: list[dict[str, Any]]) -> bool:
         created_at = utcnow()
         expires_at = (
@@ -711,7 +723,7 @@ class Database:
                 "last_checked_at": row["last_checked_at"],
                 "last_success_at": row["last_success_at"],
                 "latest_review_at": row["latest_review_at"],
-                "last_result": "failure" if failures else ("success" if row["initialized"] else "pending"),
+                "last_result": "failure" if failures else ("success" if row["initialized"] else ("waiting_reviews" if row["last_checked_at"] else "pending")),
             }
 
     def start_analysis(self, model_version: str, settings: dict[str, Any], total: int) -> int:

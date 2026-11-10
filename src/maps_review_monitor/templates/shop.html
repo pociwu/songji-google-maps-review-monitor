@@ -2,6 +2,7 @@
 {% block title %}{{ shop.name }}｜Songji 店家狀況{% endblock %}
 {% block content %}
 <p><a class="back" href="/">← 所有店家</a></p><h1>{{ shop.name }}</h1>
+{% if shop.google_url %}<p><a class="button" href="{{ shop.google_url }}" target="_blank" rel="noopener noreferrer">開啟 Google Maps 店家頁 ↗</a></p>{% endif %}
 <section class="panel" id="overview"><h2>店家總覽</h2>
 {% if overview %}
 <p class="muted">目前版本 #{{ overview.id }} · 變更偵測時間：{{ overview.captured_at }}</p>
@@ -21,7 +22,7 @@
 {% if overview_page > 1 %}<a href="?view={{ view }}&page={{ page }}&overview_page={{ overview_page - 1 }}#overview-history">較新的版本</a>{% endif %}
 {% if overview_has_next %}<a href="?view={{ view }}&page={{ page }}&overview_page={{ overview_page + 1 }}#overview-history">較舊的版本</a>{% endif %}
 </section>
-<section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl><p><a href="/review-times?shop={{ shop.shop_key }}">查看本店發文時間分析 →</a></p></section>
+<section class="panel"><h2>監控狀況</h2><dl><dt>啟用狀態</dt><dd>{{ "啟用" if shop.enabled else "未啟用" }}</dd><dt>最近結果</dt><dd>{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢", "waiting_reviews":"等待評論（尚無可讀入口）"}[shop.last_result] }}</dd><dt>上次成功查詢</dt><dd>{{ shop.last_success_at or "尚無紀錄" }}</dd><dt>連續失敗</dt><dd>{{ shop.consecutive_failures }} 次</dd><dt>最新評論</dt><dd>{{ shop.latest_review_at or "尚無評論" }}</dd></dl><p><a href="/review-times?shop={{ shop.shop_key }}">查看本店發文時間分析 →</a></p></section>
 <section class="panel">
   <h2>相似評論摘要</h2>
   <p><span class="similar-only">高度相似 {{ shop.similar }} 則</span><span class="similar-only suspected-only"> · </span><strong class="text-danger suspected-only">高優先複核 {{ shop.suspected }} 則</strong></p>

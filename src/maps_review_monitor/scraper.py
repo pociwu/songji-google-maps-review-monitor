@@ -48,6 +48,10 @@ class ScrapeError(RuntimeError):
     pass
 
 
+class ReviewsUnavailable(ScrapeError):
+    """A complete unrated place has no readable review entry (not proof of zero)."""
+
+
 def with_locale(url: str, locale: str) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -363,6 +367,8 @@ class MapsScraper:
                     self._download_assets(review)
                 result.append(review)
             return result
+        except ReviewsUnavailable:
+            raise
         except Exception:
             self.save_debug(page, shop.key)
             raise
@@ -524,6 +530,8 @@ class MapsScraper:
             # seconds after DOMContentLoaded. Re-check here so it is not
             # misreported as a missing reviews button.
             self._reject_block_page(page)
+            if self._unrated_place_without_reviews(page):
+                raise ReviewsUnavailable("店家頁已載入，但尚無可讀評論入口；等待後續巡檢確認")
             raise ScrapeError("找不到「查看全部評論」按鈕；請確認網址是店家頁面")
 
         cards = page.locator("div.jftiEf:visible")
@@ -536,6 +544,25 @@ class MapsScraper:
         if feed is not None:
             return feed
         return self._review_container(cards)
+
+    @staticmethod
+    def _unrated_place_without_reviews(page: Page) -> bool:
+        headings = page.locator('h1.DUwDvf:visible')
+        if headings.count() != 1:
+            return False
+        return headings.first.evaluate(r"""heading => {
+            const root = heading.closest('[role="main"]');
+            if (!root || !heading.textContent.trim()) return false;
+            const visible = el => !!(el.getClientRects().length);
+            const address = root.querySelector('[data-item-id="address"]');
+            if (!address || !visible(address) || !address.textContent.trim()) return false;
+            const controls = [...root.querySelectorAll('button,[role="button"],[role="tab"]')].filter(visible);
+            const names = controls.map(el => (el.getAttribute('aria-label') || el.textContent).trim());
+            if (!names.some(name => /^(撰寫評論|Write a review)$/i.test(name))) return false;
+            if (names.some(name => /^(評論|Reviews?)$|\d[\d,，]*\s*(則評論|篇評論|reviews?)/i.test(name))) return false;
+            if ([...root.querySelectorAll('[aria-label]')].filter(visible).some(el => /\d.*(顆星|stars?)/i.test(el.getAttribute('aria-label')))) return false;
+            return ![...root.querySelectorAll('div.jftiEf,div.GHT2ce,[role="feed"]')].some(visible);
+        }""")
 
     @staticmethod
     def _review_container(cards: Locator) -> Locator:

@@ -10,7 +10,7 @@ from .database import Database, utcnow
 from .models import ReviewSnapshot
 from .notifications import TelegramClient, build_parts, deliver_due, split_text
 from .review_times import parse_relative_time
-from .scraper import MapsScraper
+from .scraper import MapsScraper, ReviewsUnavailable
 from .shop_overview import record as record_overview
 
 LOG = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def enqueue_system(db: Database, event_key: str, event_type: str, shop_key: str,
 
 def run_check(settings: Settings, baseline_only: bool = False) -> dict[str, int]:
     stats = {
-        "shops_ok": 0, "shops_failed": 0, "reviews": 0, "events": 0,
+        "shops_ok": 0, "shops_failed": 0, "shops_waiting_reviews": 0, "reviews": 0, "events": 0,
         "sent": 0, "send_failed": 0, "analysis_ok": 0, "analysis_failed": 0,
     }
     db = Database(settings.database_path, settings.timezone, settings.root)
@@ -118,15 +118,19 @@ def run_check(settings: Settings, baseline_only: bool = False) -> dict[str, int]
                             stats["events"] += 1
                     stats["shops_ok"] += 1
                 except Exception as exc:
-                    count, should_alert = db.mark_shop_failure(shop.key)
-                    stats["shops_failed"] += 1
-                    LOG.exception("店家 %s 抓取失敗（連續 %s 次）", shop.name, count)
-                    if should_alert and not baseline_only:
-                        if enqueue_system(
-                            db, f"failure:{shop.key}:{count}:{utcnow()}", "shop_failure", shop.key,
-                            f"⚠️ Google Maps 監控連續失敗 {count} 次\n店家：{shop.name}\n原因：{exc}\n除錯資料：{settings.debug_dir}",
-                        ):
-                            stats["events"] += 1
+                    if isinstance(exc, ReviewsUnavailable) and db.mark_shop_waiting_reviews(shop.key):
+                        stats["shops_waiting_reviews"] += 1
+                        LOG.info("店家 %s 尚無可讀評論，等待後續巡檢；不宣稱零評論", shop.name)
+                    else:
+                        count, should_alert = db.mark_shop_failure(shop.key)
+                        stats["shops_failed"] += 1
+                        LOG.exception("店家 %s 抓取失敗（連續 %s 次）", shop.name, count)
+                        if should_alert and not baseline_only:
+                            if enqueue_system(
+                                db, f"failure:{shop.key}:{count}:{utcnow()}", "shop_failure", shop.key,
+                                f"⚠️ Google Maps 監控連續失敗 {count} 次\n店家：{shop.name}\n原因：{exc}\n除錯資料：{settings.debug_dir}",
+                            ):
+                                stats["events"] += 1
                 if index < len(settings.shops) - 1:
                     delay = random.uniform(
                         settings.shop_delay_min_seconds, settings.shop_delay_max_seconds

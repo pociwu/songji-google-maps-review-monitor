@@ -29,7 +29,7 @@ from .database import Database
 from .evidence_inputs import canonical_contributor_id
 from .review_time_analysis import build_review_time_analysis, resolve_review_posted_time
 from . import __version__
-from .shop_registration import RegistrationError, add_shop, resolve_shop_url
+from .shop_registration import RegistrationError, add_shop, resolve_shop_url, checked_google_url
 from .shop_overview import FIELDS as OVERVIEW_FIELDS, display as overview_display, history as overview_history
 
 
@@ -179,6 +179,10 @@ def create_app(config_path: str = "config.toml") -> FastAPI:
                     "latest_review_at": None, "last_result": "pending",
                 })
         for item in statuses:
+            try:
+                item["google_url"] = checked_google_url(item["url"])
+            except RegistrationError:
+                item["google_url"] = ""
             item["enabled"] = configured.get(item["shop_key"], False)
             item.update(analysis_counts.get(item["shop_key"], {"similar": 0, "suspected": 0}))
         return statuses

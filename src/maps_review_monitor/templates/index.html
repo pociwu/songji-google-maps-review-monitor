@@ -43,7 +43,7 @@
         <h2>{{ shop.name }}</h2>
         <span class="badge {{ shop.last_result }}">{{ "監控中" if shop.enabled else "未啟用" }}</span>
       </div>
-      <p>最近結果：{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢"}[shop.last_result] }}</p>
+      <p>最近結果：{{ {"success":"成功", "failure":"失敗", "pending":"尚未完成首次查詢", "waiting_reviews":"等待評論（尚無可讀入口）"}[shop.last_result] }}</p>
       <p>上次查詢：{{ shop.last_checked_at or "尚無紀錄" }}</p>
       <p>最新評論：{{ shop.latest_review_at or "尚無評論" }}</p>
       <div class="risk-counts">
@@ -52,6 +52,7 @@
       </div>
       {% if shop.latest_asset %}<p class="muted">最新動態：{{ shop.latest_asset.title }}</p>{% endif %}
     </a>
+    {% if shop.google_url %}<p><a href="{{ shop.google_url }}" target="_blank" rel="noopener noreferrer">Google Maps 店家頁 ↗</a></p>{% endif %}
   </article>
 {% else %}
   <p>尚未有已監控的店家資料。</p>

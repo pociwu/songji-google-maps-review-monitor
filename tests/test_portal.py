@@ -70,7 +70,7 @@ enabled = true
     assert "顯示高優先複核" in home.text
     assert "hide-highly-similar" in home.text
     assert "hide-suspected" in home.text
-    assert "版本 0.8.0" in home.text
+    assert "版本 0.8.1" in home.text
     assert 'href="/reviewers"' in home.text
     assert 'href="/review-times"' in home.text
     assert 'id="global-search-input"' in home.text

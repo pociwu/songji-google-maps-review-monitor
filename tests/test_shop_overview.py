@@ -107,6 +107,10 @@ def test_overview_portal_history_escaped_and_paginated(tmp_path):
     response = client.get(f"/shops/{shop.key}")
     assert response.status_code == 200
     assert "店家總覽" in response.text and "總覽歷史版本" in response.text
+    assert 'href="https://www.google.com/maps?cid=123"' in response.text
+    home = client.get('/')
+    assert 'Google Maps 店家頁' in home.text
+    assert 'rel="noopener noreferrer"' in home.text
     assert "<script>bad</script>" not in response.text
     assert "&lt;script&gt;bad&lt;/script&gt;" in response.text
     assert "較舊的版本" in response.text
@@ -131,6 +135,26 @@ def test_monitor_captures_overview_even_when_reviews_fail(store, monkeypatch):
     result = monitor.run_check(settings, baseline_only=True)
     assert result["shops_failed"] == 1
     assert history(db, shop.key)[0]["values"]["address"] == "地址"
+
+
+def test_monitor_pending_is_not_failure_or_success(store, monkeypatch):
+    from maps_review_monitor import monitor
+    from maps_review_monitor.scraper import ReviewsUnavailable
+    db, shop = store
+    settings = SimpleNamespace(database_path=db.path, timezone="Asia/Taipei", root=db.path.parent,
+        telegram_batch_limit=10, shops=[shop], analysis_enabled=False)
+    class Scraper:
+        def __init__(self, settings): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def scrape_shop(self, shop, lookup, overview_callback):
+            overview_callback({"name": "店"})
+            raise ReviewsUnavailable("等待評論")
+    monkeypatch.setattr(monitor, "MapsScraper", Scraper)
+    result = monitor.run_check(settings, baseline_only=True)
+    assert result['shops_failed'] == result['shops_ok'] == 0
+    assert result['shops_waiting_reviews'] == 1
+    assert not db.is_initialized(shop.key)
 
 
 def test_v5_migration_preserves_shop(store):
