@@ -386,12 +386,20 @@ class MapsScraper:
             website: root.querySelector('a[data-item-id="authority"]')?.href || '',
             cover_url: root.querySelector('button[jsaction*="heroHeaderImage"] img')?.src || ''};
         }""")
-        hours = page.locator('[data-item-id="oh"]:visible')
-        if hours.count() == 1:
+        hours = page.locator(
+            '[data-item-id="oh"]:visible, '
+            '[aria-label="顯示本週營業時間"]:visible, '
+            '[aria-label="Show open hours for the week"]:visible'
+        )
+        schedule = page.locator('table.eK4R0e:visible')
+        if schedule.count() == 1 or hours.count():
             try:
-                hours.click(timeout=3000)
-                page.locator('table.eK4R0e:visible').first.wait_for(state="visible", timeout=3000)
-                raw["hours"] = page.locator('table.eK4R0e:visible tr').all_inner_texts()
+                if not schedule.count():
+                    hours.first.click(timeout=3000)
+                schedule.first.wait_for(state="visible", timeout=3000)
+                raw["hours"] = schedule.first.locator('tr').evaluate_all(
+                    "rows => rows.map(row => [...row.querySelectorAll('td')].slice(0, 2).map(cell => cell.textContent.trim()).join(' '))"
+                )
             except Exception:
                 LOG.info("未取得完整每週營業時間；保留既有值")
             finally:

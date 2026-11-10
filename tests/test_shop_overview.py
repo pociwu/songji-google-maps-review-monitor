@@ -146,7 +146,8 @@ def test_v5_migration_preserves_shop(store):
     other.close()
 
 
-def test_real_browser_overview_extraction(tmp_path, monkeypatch):
+@pytest.mark.parametrize("hours_layout", ["legacy", "current"])
+def test_real_browser_overview_extraction(tmp_path, monkeypatch, hours_layout):
     """Exercise the actual DOM selectors and schedule extraction in Chromium."""
     from playwright.sync_api import sync_playwright
     from maps_review_monitor.scraper import MapsScraper
@@ -157,14 +158,15 @@ def test_real_browser_overview_extraction(tmp_path, monkeypatch):
         browser = pw.chromium.launch(executable_path=str(chrome), headless=True)
         page = browser.new_page()
         rows = "".join(f"<tr><td>星期{i}</td><td>09:00–18:00</td></tr>" for i in range(7))
+        hours_control = '<button data-item-id="oh">營業時間</button>' if hours_layout == "legacy" else '''<div onclick="document.querySelector('table').hidden=false"><span aria-label="顯示本週營業時間" role="img">展開</span></div>'''
+        table_hidden = '' if hours_layout == "legacy" else 'hidden'
         page.set_content('''<main role="main"><h1 class="DUwDvf">測試店</h1>
           <span role="img" aria-label="4.8 顆星"></span>
           <button aria-label="1,234 則評論">評論</button>
           <button data-item-id="address"><span class="Io6YTe">測試地址</span></button>
           <button data-item-id="phone:tel:123"><span class="Io6YTe">123</span></button>
           <a data-item-id="authority" href="https://example.com">網站</a>
-          <button data-item-id="oh">營業時間</button>
-          <table class="eK4R0e">''' + rows + '</table></main>')
+          ''' + hours_control + '<table class="eK4R0e" ' + table_hidden + '>' + rows + '</table></main>')
         scraper = object.__new__(MapsScraper)
         monkeypatch.setattr(scraper, "_capture_overview_cover", lambda *args: None)
         result = scraper._extract_overview(page, ShopConfig("店", "https://www.google.com/maps?cid=123"))
