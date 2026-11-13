@@ -160,6 +160,27 @@ def test_small_real_pixel_change_is_not_suppressed(store):
     assert not covers_equal(make(a), make(b), db.project_root, db.media_root)
 
 
+def test_equivalent_color_profiles_with_different_metadata_are_equal(store):
+    from PIL import Image, ImageCms
+    from hashlib import sha256
+    db, shop = store
+    folder = db.media_root
+    folder.mkdir(parents=True)
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+    other = bytearray(profile)
+    # ICC header creation year differs, while the color transform is unchanged.
+    other[24:26] = (2001).to_bytes(2, 'big')
+    assert profile != bytes(other)
+    covers = []
+    for name, icc in [('old.jpg', profile), ('new.jpg', bytes(other))]:
+        path = folder / name
+        Image.new('RGB', (32, 24), (110, 90, 75)).save(path, icc_profile=icc, quality=90)
+        covers.append({'path': str(path), 'sha256': sha256(path.read_bytes()).hexdigest()})
+    record(db, shop, {'name': '店', 'cover': covers[0]}, notify=True)
+    assert not record(db, shop, {'name': '店', 'cover': covers[1]}, notify=True)
+    assert len(history(db, shop.key)) == 1
+
+
 def test_cover_change_enqueues_old_and_new_media(store):
     import json
     db, shop = store

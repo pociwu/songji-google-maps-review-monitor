@@ -8,12 +8,13 @@ from __future__ import annotations
 import json
 import re
 from hashlib import sha256
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageCms
 
 FIELDS = {
     "name": "店名", "rating": "總評分", "review_count": "評論總數",
@@ -71,16 +72,24 @@ def _cover_pixels(cover: dict, project_root: Path, media_root: Path) -> str | No
         with Image.open(path) as source:
             if source.width * source.height > 16_000_000 or getattr(source, "n_frames", 1) != 1:
                 return None
-            # Orientation affects appearance; other EXIF fields do not. Keep
-            # color-profile identity so different rendering is not suppressed.
+            # Normalize appearance, not ICC bytes: two Display P3 profiles can
+            # carry different metadata but describe exactly the same colors.
             profile = source.info.get("icc_profile", b"") or b""
-            image = ImageOps.exif_transpose(source).convert("RGBA")
+            oriented = ImageOps.exif_transpose(source)
+            image = oriented.convert("RGBA")
+            if profile:
+                input_image = oriented if oriented.mode in {"RGB", "CMYK", "LAB", "L"} else oriented.convert("RGB")
+                converted = ImageCms.profileToProfile(
+                    input_image, ImageCms.ImageCmsProfile(BytesIO(profile)),
+                    ImageCms.createProfile("sRGB"), outputMode="RGB",
+                )
+                converted.putalpha(image.getchannel("A"))
+                image = converted
             digest = sha256()
-            digest.update(f"rgba-v1:{image.width}:{image.height}:".encode())
-            digest.update(sha256(profile).digest())
+            digest.update(f"rgba-srgb-v2:{image.width}:{image.height}:".encode())
             digest.update(image.tobytes())
             return digest.hexdigest()
-    except (OSError, ValueError, TypeError, Image.DecompressionBombError):
+    except (OSError, ValueError, TypeError, Image.DecompressionBombError, ImageCms.PyCMSError):
         return None
 
 
