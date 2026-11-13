@@ -80,6 +80,86 @@ def test_cover_versions_keep_distinct_paths(store):
     assert [v["values"]["cover"] for v in history(db, shop.key)] == [b, a]
 
 
+def make_cover(db, filename, *, metadata='', color='red'):
+    from hashlib import sha256
+    from PIL import Image
+    folder = db.media_root / 'overview-fixture'
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / filename
+    exif = Image.Exif()
+    exif[270] = metadata
+    Image.new('RGB', (32, 24), color).save(path, format='JPEG', quality=90, exif=exif)
+    return {'path': str(path), 'sha256': sha256(path.read_bytes()).hexdigest()}
+
+
+def test_identical_pixels_with_different_jpeg_metadata_do_not_create_version(store):
+    db, shop = store
+    a = make_cover(db, 'old.jpg', metadata='old metadata')
+    b = make_cover(db, 'new.jpg', metadata='new metadata')
+    assert a['sha256'] != b['sha256']
+    record(db, shop, {'name': '店', 'cover': a}, notify=True)
+    assert not record(db, shop, {'name': '店', 'cover': b}, notify=True)
+    assert len(history(db, shop.key)) == 1
+    assert not db.conn.execute('SELECT 1 FROM events').fetchone()
+
+
+def test_cover_path_change_alone_is_not_a_change(store):
+    db, shop = store
+    a = make_cover(db, 'old.jpg')
+    b = {**a, 'path': 'data/media/another-name.jpg'}
+    record(db, shop, {'name': '店', 'cover': a}, notify=True)
+    assert not record(db, shop, {'name': '店', 'cover': b}, notify=True)
+    assert len(history(db, shop.key)) == 1
+
+
+def test_other_field_change_keeps_original_equivalent_cover(store):
+    db, shop = store
+    a = make_cover(db, 'old.jpg', metadata='a')
+    b = make_cover(db, 'new.jpg', metadata='b')
+    record(db, shop, {'name': '店', 'rating': 4.8, 'cover': a}, notify=True)
+    assert record(db, shop, {'name': '店', 'rating': 4.9, 'cover': b}, notify=True)
+    latest = history(db, shop.key)[0]
+    assert set(latest['changes']) == {'rating'}
+    assert latest['values']['cover'] == a
+    assert db.conn.execute("SELECT count(*) FROM notification_parts WHERE kind='media'").fetchone()[0] == 0
+
+
+def test_actual_pixel_change_still_creates_version(store):
+    db, shop = store
+    a = make_cover(db, 'old.jpg', color='red')
+    b = make_cover(db, 'new.jpg', color='blue')
+    record(db, shop, {'name': '店', 'cover': a}, notify=True)
+    assert record(db, shop, {'name': '店', 'cover': b}, notify=True)
+    assert 'cover' in history(db, shop.key)[0]['changes']
+
+
+def test_cover_comparison_does_not_read_outside_media_or_hide_missing_files(store):
+    from maps_review_monitor.shop_overview import covers_equal
+    db, shop = store
+    a = make_cover(db, 'old.jpg', metadata='old')
+    b = make_cover(db, 'new.jpg', metadata='new')
+    outside = db.project_root / 'outside.jpg'
+    outside.write_bytes(Path(b['path']).read_bytes())
+    assert not covers_equal(a, {**b, 'path': str(outside)}, db.project_root, db.media_root)
+    assert not covers_equal(a, {**b, 'path': 'data/media/missing.jpg'}, db.project_root, db.media_root)
+
+
+def test_small_real_pixel_change_is_not_suppressed(store):
+    from hashlib import sha256
+    from PIL import Image
+    from maps_review_monitor.shop_overview import covers_equal
+    db, shop = store
+    folder = db.media_root
+    folder.mkdir(parents=True)
+    image = Image.new('RGB', (32, 24), 'red')
+    a, b = folder / 'a.png', folder / 'b.png'
+    image.save(a)
+    image.putpixel((10, 10), (254, 0, 0))
+    image.save(b)
+    make = lambda p: {'path': str(p), 'sha256': sha256(p.read_bytes()).hexdigest()}
+    assert not covers_equal(make(a), make(b), db.project_root, db.media_root)
+
+
 def test_cover_change_enqueues_old_and_new_media(store):
     import json
     db, shop = store

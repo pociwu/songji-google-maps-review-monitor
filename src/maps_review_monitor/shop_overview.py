@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import json
 import re
+from hashlib import sha256
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
+
+from PIL import Image, ImageOps
 
 FIELDS = {
     "name": "店名", "rating": "總評分", "review_count": "評論總數",
@@ -56,6 +59,43 @@ def display(value) -> str:
     return str(value)
 
 
+def _cover_pixels(cover: dict, project_root: Path, media_root: Path) -> str | None:
+    """Hash decoded display pixels, not JPEG/PNG metadata or storage names."""
+    try:
+        path = Path(cover.get("path", ""))
+        path = (path if path.is_absolute() else project_root / path).resolve()
+        if not path.is_relative_to(media_root.resolve()) or not path.is_file():
+            return None
+        if path.stat().st_size > 10_000_000:
+            return None
+        with Image.open(path) as source:
+            if source.width * source.height > 16_000_000 or getattr(source, "n_frames", 1) != 1:
+                return None
+            # Orientation affects appearance; other EXIF fields do not. Keep
+            # color-profile identity so different rendering is not suppressed.
+            profile = source.info.get("icc_profile", b"") or b""
+            image = ImageOps.exif_transpose(source).convert("RGBA")
+            digest = sha256()
+            digest.update(f"rgba-v1:{image.width}:{image.height}:".encode())
+            digest.update(sha256(profile).digest())
+            digest.update(image.tobytes())
+            return digest.hexdigest()
+    except (OSError, ValueError, TypeError, Image.DecompressionBombError):
+        return None
+
+
+def covers_equal(before, after, project_root: Path, media_root: Path) -> bool:
+    if before == after:
+        return True
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    old_sha = before.get("sha256")
+    if isinstance(old_sha, str) and re.fullmatch(r"[0-9a-f]{64}", old_sha) and old_sha == after.get("sha256"):
+        return True
+    old_pixels = _cover_pixels(before, project_root, media_root)
+    return old_pixels is not None and old_pixels == _cover_pixels(after, project_root, media_root)
+
+
 def history(db, shop_key: str, page: int = 1, size: int = 20) -> list[dict]:
     rows = db.conn.execute(
         "SELECT * FROM shop_overview_versions WHERE shop_key=? ORDER BY id DESC LIMIT ? OFFSET ?",
@@ -80,6 +120,12 @@ def record(db, shop, observed: dict, *, notify: bool) -> bool:
     with db.transaction():
         prior = history(db, shop.key, size=1)
         old = prior[0]["values"] if prior else {}
+        if "cover" in observed and "cover" in old and covers_equal(
+            old["cover"], observed["cover"], db.project_root, db.media_root
+        ):
+            # Keep the original file reference even when some other field has
+            # changed. Equivalent encodings must not leak into new snapshots.
+            observed["cover"] = old["cover"]
         merged = {**old, **observed}
         changes = {key: {"before": old.get(key), "after": value}
                    for key, value in observed.items() if old.get(key) != value}
